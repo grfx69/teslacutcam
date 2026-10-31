@@ -1,0 +1,7 @@
+node_modules
+dist
+*.key
+*geo-cache*.json
+.env*
+screenshots/
+*.mp4

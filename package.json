@@ -1,0 +1,33 @@
+{
+  "name": "teslacutcam",
+  "version": "1.0.0",
+  "description": "Tesla Cut Cam Export - browser-only Tesla dashcam viewer and exporter",
+  "main": "index.js",
+  "scripts": {
+    "test": "node scripts/e2e.mjs && node scripts/e2e-geo.mjs && node scripts/e2e-filter.mjs && node scripts/e2e-features.mjs && node scripts/e2e-long.mjs && node scripts/e2e-web.mjs && node scripts/e2e-firefox.mjs && node scripts/e2e-defish.mjs",
+    "dev": "vite",
+    "build": "tsc && vite build",
+    "preview": "vite preview --port 8123",
+    "test:core": "node scripts/e2e.mjs",
+    "test:geo": "node scripts/e2e-geo.mjs",
+    "test:filter": "node scripts/e2e-filter.mjs",
+    "test:features": "node scripts/e2e-features.mjs",
+    "test:long": "node scripts/e2e-long.mjs",
+    "test:web": "node scripts/e2e-web.mjs",
+    "test:firefox": "node scripts/e2e-firefox.mjs",
+    "test:defish": "node scripts/e2e-defish.mjs"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "module",
+  "devDependencies": {
+    "playwright": "^1.64.1",
+    "typescript": "^5.9.3",
+    "vite": "^5.4.21"
+  },
+  "dependencies": {
+    "mp4-muxer": "^5.2.2",
+    "mp4box": "^0.5.2"
+  }
+}

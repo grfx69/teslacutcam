@@ -1,0 +1,22 @@
+# systemd unit for the /geo proxy (web mode). Install:
+#   sudo mkdir -p /opt/teslacutcam && sudo cp ../server/teslacutcam-server.py /opt/teslacutcam/
+#   sudo cp teslacutcam-geo.service /etc/systemd/system/ && sudo systemctl daemon-reload
+#   echo 'TCC_GEO_KEY=your-locationiq-key' | sudo tee /etc/teslacutcam.env && sudo chmod 600 /etc/teslacutcam.env
+#   sudo systemctl enable --now teslacutcam-geo
+[Unit]
+Description=Tesla Cut Cam Export /geo reverse-geocoding proxy
+After=network-online.target
+
+[Service]
+EnvironmentFile=-/etc/teslacutcam.env
+Environment=TCC_PORT=8125 TCC_GEO_CACHE=/var/lib/teslacutcam/geo-cache.json TCC_RATE_PER_MIN=30
+StateDirectory=teslacutcam
+ExecStart=/usr/bin/python3 /opt/teslacutcam/teslacutcam-server.py --web
+DynamicUser=yes
+ProtectSystem=strict
+ProtectHome=yes
+NoNewPrivileges=yes
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target

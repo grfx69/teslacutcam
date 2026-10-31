@@ -1,0 +1,7 @@
+# Example ~/.cloudflared/config.yml (edit tunnel id / credentials path). Points the hostname at nginx on 8124.
+tunnel: <TUNNEL-ID>
+credentials-file: /home/<user>/.cloudflared/<TUNNEL-ID>.json
+ingress:
+  - hostname: teslacutcam.wackedoodle.com
+    service: http://localhost:8124
+  - service: http_status:404
