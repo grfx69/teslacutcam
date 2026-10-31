@@ -20,7 +20,7 @@ function fit(c: CanvasRenderingContext2D, s: Src | undefined, [x, y, w, h]: Rect
       const z = xf?.[2] ?? 1, dw = bw * z, dh = bh * z;
       const ox = (xf?.[0] ?? 0) * dw, oy = (xf?.[1] ?? 0) * dh;
       c.save(); c.beginPath(); c.rect(x + (w - Math.min(w, bw)) / 2, y + (h - Math.min(h, bh)) / 2, Math.min(w, bw), Math.min(h, bh)); c.clip();
-      const img = cam && defishOn(cam) ? defish(s as TexImageSource, sw, sh) ?? s : s;
+      const img = cam && defishOn(cam) ? defish(s as TexImageSource, sw, sh, cam) ?? s : s;
       c.drawImage(img, x + (w - dw) / 2 + ox, y + (h - dh) / 2 + oy, dw, dh);
       c.restore();
     }

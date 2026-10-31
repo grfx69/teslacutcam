@@ -751,11 +751,11 @@ async function exportDay(list: TeslaEvent[], how: 'files' | 'downloads' | 'combi
 }
 
 // Fisheye / skew correction: one checkbox per wide camera, saved, used by the live view and export.
-setDefish(JSON.parse(localStorage.getItem('tcc.defish') || '[]'));
+setDefish(JSON.parse(localStorage.getItem('tcc.defish2') || '[]'));
 document.querySelectorAll<HTMLInputElement>('.dfcb').forEach(cb => {
   cb.checked = getDefish().has(cb.value);
   cb.addEventListener('change', () => {
     const on = [...document.querySelectorAll<HTMLInputElement>('.dfcb')].filter(x => x.checked).map(x => x.value);
-    setDefish(on); localStorage.setItem('tcc.defish', JSON.stringify(on)); draw();
+    setDefish(on); localStorage.setItem('tcc.defish2', JSON.stringify(on)); draw();
   });
 });
