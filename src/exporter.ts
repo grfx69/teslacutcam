@@ -313,11 +313,11 @@ export async function exportVideo(o: ExportOpts): Promise<ExportResult> {
           for (const c of cams) { const f = await sources[c]?.frameAt(s.ts); if (f) frames[c] = f; }
           const xf: Record<Camera, Xf> = stab ? await stab.step(frames, main) : {};
           if (!titleDone) {
-            compose(ctx, W, H, o.layout, main, frames, xf);
+            compose(ctx, W, H, o.layout, main, frames, xf, cams);
             const bg = o.title!.bg === 'blur' ? await createImageBitmap(canvas) : null;
             await card(o.title!, bg); bg?.close(); titleDone = true;
           }
-          const [hx, hy, hw, hh] = compose(ctx, W, H, o.layout, main, frames, xf);
+          const [hx, hy, hw, hh] = compose(ctx, W, H, o.layout, main, frames, xf, cams);
           const time = new Date(seg.start.getTime() + s.ts * 1000);
           const i = tel ? Math.min(tel.n - 1, Math.floor((s.ts / (tel.duration || clock.samples.length / 36)) * tel.n)) : 0;
           if (o.hud) {

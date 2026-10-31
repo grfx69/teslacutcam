@@ -301,9 +301,9 @@ function draw() {
   const [W, H] = size();
   if (screen.width !== W || screen.height !== H) { screen.width = W; screen.height = H; }
   const src: Record<Camera, HTMLVideoElement> = {};
-  for (const c of Object.keys(ev.segments[seg].files)) if (vids[c]) src[c] = vids[c];
+  for (const c of Object.keys(ev.segments[seg].files)) if (vids[c] && !vids[c].error) src[c] = vids[c];
   const ex = expanded && src[expanded] ? expanded : null;
-  const [hx, hy, hw, hh] = compose(ctx, W, H, ex ? 'single' : layout(), ex ?? (src[mainCam()] ? mainCam() : Object.keys(src)[0]), src);
+  const [hx, hy, hw, hh] = compose(ctx, W, H, ex ? 'single' : layout(), ex ?? (src[mainCam()] ? mainCam() : Object.keys(src)[0]), src, {}, ex ? [] : cams);
   const local = m.currentTime, time = new Date(ev.segments[seg].start.getTime() + local * 1000);
   if ($<HTMLInputElement>('hud').checked) {
     const t = tel[seg], i = frameIndex(t, local);
@@ -422,7 +422,7 @@ function xRefresh() {
   pv.height = Math.round(pv.width * H / W);
   const c = pv.getContext('2d')!, src: Record<Camera, HTMLVideoElement> = {};
   for (const k of Object.keys(ev!.segments[seg].files)) if (vids[k]) src[k] = vids[k];
-  const [hx, hy, hw, hh] = compose(c, pv.width, pv.height, xLayout(), src[mainCam()] ? mainCam() : Object.keys(src)[0], src);
+  const [hx, hy, hw, hh] = compose(c, pv.width, pv.height, xLayout(), src[mainCam()] ? mainCam() : Object.keys(src)[0], src, {}, cams);
   if (xHud) {
     const m = master(), t = tel[seg], i = frameIndex(t, m.currentTime), time = new Date(ev!.segments[seg].start.getTime() + m.currentTime * 1000);
     c.save(); c.translate(hx, hy);
@@ -553,6 +553,10 @@ $('collapse').onclick = () => setExpanded(null);
 $('expChip').onclick = () => setExpanded(null);
 document.addEventListener('keydown', e => { if (e.key === 'Escape' && expanded && !document.querySelector('dialog[open]')) setExpanded(null); });
 $('layout').addEventListener('change', () => { if (expanded) setExpanded(null); });
+$('cam').addEventListener('change', () => { // camera picker: show that camera on its own (click the chip / Esc to return to the layout)
+  const c = mainCam(); const l = layout();
+  if (l === 'single' || l === 'pip') { if (expanded) setExpanded(null); else draw(); } else setExpanded(c);
+});
 
 // ======================= round 4 features =======================
 // ---------- speed ramps ----------

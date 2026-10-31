@@ -11,8 +11,8 @@ const ALIAS: Record<string, Camera> = {
   back: 'back', b: 'back', rear: 'back',
   left_repeater: 'left_repeater', l: 'left_repeater', left: 'left_repeater', repeater_left: 'left_repeater',
   right_repeater: 'right_repeater', r: 'right_repeater', right: 'right_repeater', repeater_right: 'right_repeater',
-  left_pillar: 'left_pillar', bf: 'left_pillar', pillar_left: 'left_pillar', left_bpillar: 'left_pillar', fl: 'left_pillar',
-  right_pillar: 'right_pillar', br: 'right_pillar', pillar_right: 'right_pillar', right_bpillar: 'right_pillar', fr: 'right_pillar',
+  left_pillar: 'left_pillar', bf: 'left_pillar', pillar_left: 'left_pillar', left_bpillar: 'left_pillar', left_b_pillar: 'left_pillar', b_pillar_left: 'left_pillar', leftpillar: 'left_pillar', fl: 'left_pillar',
+  right_pillar: 'right_pillar', br: 'right_pillar', pillar_right: 'right_pillar', right_bpillar: 'right_pillar', right_b_pillar: 'right_pillar', b_pillar_right: 'right_pillar', rightpillar: 'right_pillar', fr: 'right_pillar',
 };
 export const CAM_LABEL: Record<string, string> = {
   front: 'Front', front_wide: 'Front bumper', back: 'Rear', left_repeater: 'Left repeater', right_repeater: 'Right repeater',

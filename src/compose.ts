@@ -25,6 +25,7 @@ function fit(c: CanvasRenderingContext2D, s: Src | undefined, [x, y, w, h]: Rect
       c.restore();
     }
   }
+  else if (label) { c.fillStyle = '#666'; c.font = `500 ${Math.max(11, Math.round(Math.min(h / 14, 16)))}px system-ui, sans-serif`; c.textAlign = 'center'; c.textBaseline = 'middle'; c.fillText('No video', x + w / 2, y + h / 2); }
   if (label) {
     const fs = Math.max(11, Math.round(Math.min(h / 12, 18)));
     c.font = `600 ${fs}px system-ui, sans-serif`;
@@ -86,8 +87,11 @@ export function plan(W: number, H: number, layout: Layout, main: Camera, cams: C
   return { cells, hud: [0, 0, W, fH] };
 }
 
-export function compose(c: CanvasRenderingContext2D, W: number, H: number, layout: Layout, main: Camera, src: Record<Camera, Src | undefined>, xf: Record<Camera, Xf> = {}): Rect {
-  const cams = [...CAMERAS, ...Object.keys(src).filter(k => !CAMERAS.includes(k))].filter(k => src[k]);
+export function compose(c: CanvasRenderingContext2D, W: number, H: number, layout: Layout, main: Camera, src: Record<Camera, Src | undefined>, xf: Record<Camera, Xf> = {}, all: Camera[] = []): Rect {
+  // Lay out every camera the event has (not only the ones with a frame right now), so a camera that is
+  // missing from one clip or failed to decode keeps its slot (shown as 'No video') instead of vanishing.
+  const have = new Set([...all, ...Object.keys(src).filter(k => src[k])]);
+  const cams = [...CAMERAS, ...[...have].filter(k => !CAMERAS.includes(k))].filter(k => have.has(k));
   c.fillStyle = '#000'; c.fillRect(0, 0, W, H);
   const p = plan(W, H, layout, main, cams);
   const showLabels = p.cells.length > 1;
