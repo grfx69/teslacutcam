@@ -3,7 +3,7 @@ import { buildLibrary, walkHandle, eventCams, camLabel, type Camera, type Entry,
 import type { Telemetry } from './sei';
 import { setDefish, getDefish } from './defish';
 import { compose, plan, layoutAspect, type Layout } from './compose';
-import { buildTrail, drawMapPanel, type Trail } from './map';
+import { buildTrail, drawMapPanel, preloadTiles, setTileListener, type Trail } from './map';
 import { defaultRamp, findTriggers, rateAt, TRIGGER_LABEL, type RampOpts, type Trigger } from './ramps';
 import { defaultStab, type StabOpts } from './stab';
 import { defaultTitle, defaultEnd, drawCard, FONTS, type CardOpts } from './cards';
@@ -214,7 +214,7 @@ async function openEvent(e: TeslaEvent) {
     })));
     segStarts = []; total = 0;
     tel.forEach(t => { segStarts.push(total); total += t?.duration || 60; });
-    trail = buildTrail(tel, segStarts, e.info); computeTriggers();
+    trail = buildTrail(tel, segStarts, e.info); computeTriggers(); if (opts.map) void preloadTiles(trail, opts, 8000);
     const f0 = clockFile(0); hevcCheck(f0);
     $('inT').textContent = '0:00'; $('outT').textContent = 'end';
     stats();
@@ -312,7 +312,7 @@ function draw() {
       const inf = ev.info || {};
       drawSentryHud(ctx, hw, hh, time, { reason: inf.reason, camera: inf.camera, trigger: inf.timestamp ? new Date(inf.timestamp) : undefined, place: place(seg, i) }, opts);
     } else drawHud(ctx, hw, hh, { t, i, time, place: place(seg, i) }, opts);
-    if (opts.map && trail) drawMapPanel(ctx, hw, hh, trail, segStarts[seg] + local, t?.hasData ? t.heading[i] : 0, opts);
+    if (opts.map && trail) drawMapPanel(ctx, hw, hh, trail, segStarts[seg] + local, t?.hasData ? t.heading[i] : 0, opts, place(seg, i));
     ctx.restore();
   }
   cur = now();
@@ -428,7 +428,7 @@ function xRefresh() {
     c.save(); c.translate(hx, hy);
     if (mode === 'sentry') { const inf = ev!.info || {}; drawSentryHud(c, hw, hh, time, { reason: inf.reason, camera: inf.camera, trigger: inf.timestamp ? new Date(inf.timestamp) : undefined, place: place(seg, i) }, xopts!); }
     else drawHud(c, hw, hh, { t, i, time, place: place(seg, i) }, xopts!);
-    if (xopts!.map && trail) drawMapPanel(c, hw, hh, trail, segStarts[seg] + m.currentTime, t?.hasData ? t.heading[i] : 0, xopts!);
+    if (xopts!.map && trail) drawMapPanel(c, hw, hh, trail, segStarts[seg] + m.currentTime, t?.hasData ? t.heading[i] : 0, xopts!, place(seg, i));
     c.restore();
   }
   drawCardPreview();
@@ -502,12 +502,14 @@ $('settingsBtn').onclick = () => {
   $<HTMLSelectElement>('units').value = opts.units; geoUI();
   $<HTMLSelectElement>('perf').value = F.perf; $<HTMLInputElement>('remember').checked = F.remember;
   $<HTMLSelectElement>('mapCorner').value = opts.mapCorner ?? 'tr'; $<HTMLSelectElement>('mapNorth').value = opts.mapNorthUp === false ? '0' : '1';
+  $<HTMLSelectElement>('mapStyle').value = opts.mapStyle ?? 'aerial'; $<HTMLSelectElement>('mapZoom').value = opts.mapZoom ?? 'close';
   memInfo();
   $<HTMLDialogElement>('settings').showModal();
 };
 $('settings').addEventListener('close', () => {
   opts.units = $<HTMLSelectElement>('units').value as 'mph' | 'kmh';
   opts.mapCorner = $<HTMLSelectElement>('mapCorner').value as any; opts.mapNorthUp = $<HTMLSelectElement>('mapNorth').value === '1';
+  opts.mapStyle = $<HTMLSelectElement>('mapStyle').value as any; opts.mapZoom = $<HTMLSelectElement>('mapZoom').value as any;
   localStorage.setItem('teslacam.overlay', JSON.stringify(opts));
   F.perf = $<HTMLSelectElement>('perf').value as Perf; F.remember = $<HTMLInputElement>('remember').checked; saveF();
   if (!F.remember) idbSet('lastFolder', undefined);
@@ -528,6 +530,7 @@ function geoUI() {
 }
 $('streets').addEventListener('change', e => { setGeoEnabled((e.target as HTMLInputElement).checked); lastPlace = ''; geoUI(); draw(); });
 checkGeo().then(geoUI);
+setTileListener(() => { if (opts.map) draw(); });
 
 // ---------- click-to-expand camera ----------
 let expanded: Camera | null = null, expandedAt = 0;
@@ -541,8 +544,10 @@ function setExpanded(c: Camera | null) {
 screen.addEventListener('click', e => {
   if (!ev || seg < 0 || expanded) return;
   const r = screen.getBoundingClientRect(), x = (e.clientX - r.left) / r.width * screen.width, y = (e.clientY - r.top) / r.height * screen.height;
-  const have = Object.keys(ev.segments[seg].files);
-  const main = have.includes(mainCam()) ? mainCam() : have[0];
+  // Must use exactly the camera list/order compose() draws with (event cams in display order), not the
+  // clip's file order, or grid/PiP slots map to the wrong camera.
+  const files = ev.segments[seg].files, have = cams.length ? cams : Object.keys(files);
+  const main = files[mainCam()] ? mainCam() : Object.keys(files)[0];
   const p = plan(screen.width, screen.height, layout(), main, have);
   // last matching cell wins (PiP insets are drawn on top of the main view)
   const hit = [...p.cells].reverse().find(({ r: [cx, cy, cw, ch] }) => x >= cx && x < cx + cw && y >= cy && y < cy + ch);

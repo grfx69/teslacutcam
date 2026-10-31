@@ -6,13 +6,15 @@ export interface OverlayOpts {
   units: 'mph' | 'kmh';
   /** Sentry-only elements (optional; default on). */
   sentryBadge?: boolean; sentryTrigger?: boolean;
-  /** offline breadcrumb map (off by default) */
+  /** GPS map panel (off by default) */
   map?: boolean; mapCorner?: 'tl' | 'tr' | 'bl' | 'br'; mapNorthUp?: boolean;
+  /** map background (online tiles; 'none' = path only) and zoom */
+  mapStyle?: 'aerial' | 'streets' | 'dark' | 'none'; mapZoom?: 'close' | 'medium' | 'fit';
 }
 export const defaultOverlay: OverlayOpts = {
   speed: true, gear: true, autopilot: true, steering: true, pedals: true,
   gforce: true, blinkers: true, location: true, clock: true, compass: true, units: 'mph',
-  map: false, mapCorner: 'tr', mapNorthUp: true,
+  map: false, mapCorner: 'tr', mapNorthUp: true, mapStyle: 'aerial', mapZoom: 'close',
 };
 
 export interface HudFrame { t: Telemetry | null; i: number; time: Date; place: string; }

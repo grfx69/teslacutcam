@@ -94,6 +94,7 @@ export function compose(c: CanvasRenderingContext2D, W: number, H: number, layou
   const cams = [...CAMERAS, ...[...have].filter(k => !CAMERAS.includes(k))].filter(k => have.has(k));
   c.fillStyle = '#000'; c.fillRect(0, 0, W, H);
   const p = plan(W, H, layout, main, cams);
+  if (typeof window !== "undefined" && W > 0) (window as any).__lastPlan = { W, H, cells: p.cells.map(c => ({ cam: c.cam, r: c.r })) };
   const showLabels = p.cells.length > 1;
   for (const cell of p.cells) fit(c, src[cell.cam], cell.r, showLabels ? camLabel(cell.cam) : undefined, cell.cover, xf[cell.cam], cell.cam);
   return p.hud;

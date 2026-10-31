@@ -98,6 +98,9 @@
   <h3>Map</h3>
   <label>Corner <select id="mapCorner"><option value="tr">Top right</option><option value="tl">Top left</option><option value="br">Bottom right</option><option value="bl">Bottom left</option></select></label>
   <label>Orientation <select id="mapNorth"><option value="1">North-up</option><option value="0">Heading-up</option></select></label>
+  <label>Background <select id="mapStyle"><option value="aerial">Aerial + street names</option><option value="streets">Street map</option><option value="dark">Dark street map</option><option value="none">None (path only, offline)</option></select></label>
+  <label>Zoom <select id="mapZoom"><option value="close">Close (follow car)</option><option value="medium">Medium (follow car)</option><option value="fit">Whole path</option></select></label>
+  <p class="hint">Map tiles load from Esri / CARTO (OpenStreetMap) over the internet; only tile coordinates are requested, never your video. Offline, the map shows the path and street only.</p>
   <h3>Street names (optional)</h3>
   <label><input type="checkbox" id="streets"> Show street names (looked up by the /geo helper)</label>
   <p id="geoStatus" class="hint"></p>

@@ -11,7 +11,7 @@ import { setDefish } from './defish';
 import { compose, type Layout, type Xf } from './compose';
 import { drawHud, drawSentryHud, type OverlayOpts, type Mode } from './overlay';
 import { drawCard, type CardOpts } from './cards';
-import { drawMapPanel, type Trail } from './map';
+import { drawMapPanel, preloadTiles, type Trail } from './map';
 import { Stabilizer, type StabOpts } from './stab';
 
 interface Sample { data: Uint8Array | null; off: number; size: number; ts: number; dur: number; key: boolean; desc: number; }
@@ -283,6 +283,7 @@ export async function exportVideo(o: ExportOpts): Promise<ExportResult> {
 
   for (let pi = 0; pi < o.parts.length; pi++) {
     const P = o.parts[pi], ev = P.event, evCams = eventCams(ev);
+    if (o.hud && o.overlay.map) await preloadTiles(P.trail, o.overlay);
     const main = evCams.includes(o.main) ? o.main : evCams.includes('front') ? 'front' : evCams[0];
     const cams: Camera[] = o.layout === 'single' ? [main] : evCams;
     let acc = 0;
@@ -326,7 +327,7 @@ export async function exportVideo(o: ExportOpts): Promise<ExportResult> {
               const inf = ev.info || {};
               drawSentryHud(ctx, hw, hh, time, { reason: inf.reason, camera: inf.camera, trigger: inf.timestamp ? new Date(inf.timestamp) : undefined, place: [inf.street, inf.city].filter(Boolean).join(', ') }, o.overlay);
             } else drawHud(ctx, hw, hh, { t: tel, i, time, place: P.place(si, i) }, o.overlay);
-            if (o.overlay.map && P.trail) drawMapPanel(ctx, hw, hh, P.trail, abs, tel?.hasData ? tel.heading[i] : 0, o.overlay);
+            if (o.overlay.map && P.trail) drawMapPanel(ctx, hw, hh, P.trail, abs, tel?.hasData ? tel.heading[i] : 0, o.overlay, P.mode === 'sentry' ? [ev.info?.street, ev.info?.city].filter(Boolean).join(', ') : P.place(si, i));
             ctx.restore();
           }
           // speed ramp: repeat frames so the output keeps the source frame rate while time slows down
