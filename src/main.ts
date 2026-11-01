@@ -278,6 +278,15 @@ function loop() {
 $('play').onclick = () => playing ? pause() : play();
 $('rate').onchange = () => { if (playing) play(); };
 ['layout', 'cam', 'hud', 'res'].forEach(id => $(id).addEventListener('change', draw));
+{ // rear mirror toggle for the stitched layouts
+  const lab = document.createElement('label'); lab.id = 'mirrorWrap'; lab.title = 'Flip the rear camera like a rear-view mirror so its edges line up with the side cameras';
+  lab.innerHTML = '<input type="checkbox" id="rearMirror"> Mirror rear';
+  $('layout').after(lab);
+  const cb = $<HTMLInputElement>('rearMirror'); cb.checked = localStorage.getItem('tcc.rearMirror') !== '0';
+  const vis = () => { lab.hidden = !['stitch', 'panorear'].includes(layout()); };
+  cb.addEventListener('change', () => { localStorage.setItem('tcc.rearMirror', cb.checked ? '1' : '0'); draw(); });
+  $('layout').addEventListener('change', vis); vis();
+}
 document.addEventListener('keydown', e => {
   const tg = e.target as HTMLElement;
   if (tg.tagName === 'INPUT' || tg.tagName === 'SELECT') return;
