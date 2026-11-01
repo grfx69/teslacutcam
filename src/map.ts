@@ -1,5 +1,5 @@
 // GPS map panel: the trail comes only from the clip's own GPS (embedded telemetry, or the single location
-// in event.json). Optional online map tiles (Esri aerial + street-name labels, or CARTO street map) are
+// in event.json). Optional online map tiles (Esri aerial + street-name labels, or Esri street / dark-gray maps, all keyless) are
 // drawn underneath, zoomed in around the car like a car's top-down navigation view. Tiles are CORS-enabled
 // images, so exports stay readable; offline (or style "none") the panel falls back to path + street text.
 import type { Telemetry } from './sei';
@@ -30,12 +30,15 @@ function idxAt(tr: Trail, t: number) { let lo = 0, hi = tr.t.length - 1; while (
 export type MapStyle = 'aerial' | 'streets' | 'dark' | 'none';
 export type MapZoom = 'close' | 'medium' | 'fit';
 const ESRI = 'https://server.arcgisonline.com/ArcGIS/rest/services/';
-const LAYERS: Record<Exclude<MapStyle, 'none'>, string[]> = {
-  aerial: [ESRI + 'World_Imagery/MapServer/tile/{z}/{y}/{x}', ESRI + 'Reference/World_Transportation/MapServer/tile/{z}/{y}/{x}', ESRI + 'Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}'],
-  streets: ['https://a.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png'],
-  dark: ['https://a.basemaps.cartocdn.com/rastertiles/dark_all/{z}/{x}/{y}.png'],
+// All keyless, CORS-enabled Esri tile services (no API key, no CARTO). max = deepest native zoom; deeper views overzoom.
+type Layer = { u: string; max: number };
+const E = (path: string, max = 19): Layer => ({ u: ESRI + path + '/MapServer/tile/{z}/{y}/{x}', max });
+const LAYERS: Record<Exclude<MapStyle, 'none'>, Layer[]> = {
+  aerial: [E('World_Imagery'), E('Reference/World_Transportation'), E('Reference/World_Boundaries_and_Places')],
+  streets: [E('World_Street_Map')],
+  dark: [E('Canvas/World_Dark_Gray_Base', 16), E('Canvas/World_Dark_Gray_Reference', 16)],
 };
-const ATTR: Record<string, string> = { aerial: 'Esri, Maxar, Earthstar', streets: '© OpenStreetMap © CARTO', dark: '© OpenStreetMap © CARTO' };
+const ATTR: Record<string, string> = { aerial: 'Esri, Maxar, Earthstar Geographics', streets: 'Esri, HERE, Garmin, © OpenStreetMap', dark: 'Esri, HERE, Garmin, © OpenStreetMap' };
 type T = { img: HTMLImageElement | ImageBitmap | null; p: Promise<void> };
 const cache = new Map<string, T>();
 let onTile: (() => void) | null = null, redrawQueued = false;
@@ -71,7 +74,7 @@ export async function preloadTiles(tr: Trail | null | undefined, o: OverlayOpts,
   const z = zoomFor(tr, o.mapZoom ?? 'close', 256), need = new Set<string>(), R = 2;
   const st = Math.max(1, Math.floor(tr.lat.length / 400));
   for (let j = 0; j < tr.lat.length; j += st) { const tx = Math.floor(wx(tr.lon[j], z) / TS), ty = Math.floor(wy(tr.lat[j], z) / TS);
-    for (let dx = -R + 1; dx < R; dx++) for (let dy = -R + 1; dy < R; dy++) for (const l of L) need.add(url(l, z, tx + dx, ty + dy)); }
+    for (let dx = -R + 1; dx < R; dx++) for (let dy = -R + 1; dy < R; dy++) for (const l of L) { const tz = Math.min(z, l.max), f = 2 ** (z - tz); need.add(url(l.u, tz, Math.floor((tx + dx) / f), Math.floor((ty + dy) / f))); } }
   const all = [...need].slice(0, 600).map(u => tile(u).p);
   await Promise.race([Promise.all(all), new Promise(r => setTimeout(r, timeoutMs))]);
 }
@@ -98,9 +101,12 @@ export function drawMapPanel(c: CanvasRenderingContext2D, W: number, H: number, 
   let tiles = 0, loaded = 0;
   if (L.length) {
     const rad = size / q * 0.75, tx0 = Math.floor((mx - rad) / TS), tx1 = Math.floor((mx + rad) / TS), ty0 = Math.floor((my - rad) / TS), ty1 = Math.floor((my + rad) / TS);
-    for (const l of L) for (let tx = tx0; tx <= tx1; tx++) for (let ty = ty0; ty <= ty1; ty++) {
-      const T = tile(url(l, z, tx, ty)); tiles++;
-      if (T.img) { loaded++; c.drawImage(T.img, tx * TS - mx, ty * TS - my, TS + 0.5, TS + 0.5); }
+    for (const l of L) {
+      const tz = Math.min(z, l.max), f = 2 ** (z - tz), ts = TS * f;
+      for (let tx = Math.floor(tx0 / f); tx <= Math.floor(tx1 / f); tx++) for (let ty = Math.floor(ty0 / f); ty <= Math.floor(ty1 / f); ty++) {
+        const T = tile(url(l.u, tz, tx, ty)); tiles++;
+        if (T.img) { loaded++; c.drawImage(T.img, tx * ts - mx, ty * ts - my, ts + 0.5, ts + 0.5); }
+      }
     }
   }
   const P = (j: number): [number, number] => [PX[j] - mx, PY[j] - my];
@@ -133,7 +139,7 @@ export function drawMapPanel(c: CanvasRenderingContext2D, W: number, H: number, 
     c.fillStyle = 'rgba(0,0,0,0.62)'; c.beginPath(); c.roundRect(x0 + (size - tw) / 2 - 8 * s, y0 + size - 34 * s, tw + 16 * s, 20 * s, 6 * s); c.fill();
     c.fillStyle = '#fff'; c.textAlign = 'center'; c.textBaseline = 'middle'; c.fillText(text, x0 + size / 2, y0 + size - 24 * s, size - 16 * s);
   }
-  if (L.length && loaded) { c.font = `${8 * s}px system-ui`; c.fillStyle = 'rgba(255,255,255,0.75)'; c.textAlign = 'right'; c.textBaseline = 'bottom'; c.fillText(ATTR[o.mapStyle ?? 'aerial'], x0 + size - 6 * s, y0 + size - 2 * s); }
+  if (L.length && loaded) { c.font = `${8 * s}px system-ui`; c.fillStyle = 'rgba(255,255,255,0.75)'; c.textAlign = 'right'; c.textBaseline = 'bottom'; const at = ATTR[o.mapStyle ?? 'aerial'], aw = c.measureText(at).width; c.fillStyle = 'rgba(0,0,0,0.55)'; c.fillRect(x0 + size - aw - 10 * s, y0 + size - 11 * s, aw + 10 * s, 11 * s); c.fillStyle = 'rgba(255,255,255,0.9)'; c.fillText(at, x0 + size - 6 * s, y0 + size - 2 * s); }
   c.restore();
   return { tiles, loaded };
 }
