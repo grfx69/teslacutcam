@@ -7,7 +7,7 @@ export const rearMirror = () => { try { return localStorage.getItem('tcc.rearMir
 type Src = CanvasImageSource & ({ videoWidth: number; videoHeight: number } | { displayWidth: number; displayHeight: number });
 export type Rect = [number, number, number, number];
 /** per-camera stabilisation transform: shift (fraction of the drawn image) and zoom */
-export type Xf = [number, number, number];
+export type Xf = [number, number, number, ...number[]]; // optional warp: kl, kr, rot(deg), p
 
 function dims(s: Src): [number, number] {
   return 'videoWidth' in s ? [s.videoWidth, s.videoHeight] : [s.displayWidth, s.displayHeight];
@@ -24,7 +24,9 @@ function fit(c: CanvasRenderingContext2D, s: Src | undefined, [x, y, w, h]: Rect
       c.save(); c.beginPath(); c.rect(x + (w - Math.min(w, bw)) / 2, y + (h - Math.min(h, bh)) / 2, Math.min(w, bw), Math.min(h, bh)); c.clip();
       const img = cam && defishOn(cam) ? defish(s as TexImageSource, sw, sh, cam) ?? s : s;
       if (mirror) { c.translate(2 * x + w, 0); c.scale(-1, 1); }
-      c.drawImage(img, x + (w - dw) / 2 + ox, y + (h - dh) / 2 + oy, dw, dh);
+      const X0 = x + (w - dw) / 2 + ox, Y0 = y + (h - dh) / 2 + oy;
+      if (xf && xf.length > 3 && (xf[3] !== 1 || xf[4] !== 1 || xf[5] || xf[6])) warpDraw(c, img as CanvasImageSource, sw, sh, X0, Y0, dw, dh, x + w / 2, y + h / 2, xf[3], xf[4], xf[5], xf[6], mirror);
+      else c.drawImage(img, X0, Y0, dw, dh);
       c.restore();
     }
   }
@@ -122,6 +124,26 @@ export function plan(W: number, H: number, layout: Layout, main: Camera, cams: C
   return { cells, hud: [0, 0, W, fH] };
 }
 
+/**
+ * Perspective (keystone) warp drawn as thin vertical slices: column u in [0,1] lands at the projective position
+ * u' = u(1+p)/(1+p u) (p>0 compresses the right side, p<0 the left) and is scaled vertically by kl..kr about the
+ * horizon line, so the outer edge of a side camera can be made taller than its inner edge, like a homography
+ * that maps the rectangle to a trapezoid with vertical sides. rot tilts the whole camera about the cell centre.
+ * kl/kr are in screen orientation (after a mirror flip).
+ */
+function warpDraw(c: CanvasRenderingContext2D, img: CanvasImageSource, sw: number, sh: number, X0: number, Y0: number, dw: number, dh: number, cx: number, cy: number, kl = 1, kr = 1, rot = 0, p = 0, mirror = false) {
+  if (rot) { c.translate(cx, cy); c.rotate((mirror ? -rot : rot) * Math.PI / 180); c.translate(-cx, -cy); }
+  if (mirror) { const t = kl; kl = kr; kr = t; p = -p; }
+  const N = Math.max(16, Math.min(96, Math.round(dw / 12)));
+  const P = (u: number) => p >= 0 ? u * (1 + p) / (1 + p * u) : 1 - (1 - u) * (1 - p) / (1 - p * (1 - u));
+  const hy = Y0 + dh / 2;
+  for (let i = 0; i < N; i++) {
+    const u0 = i / N, u1 = (i + 1) / N, a = P(u0), b = P(u1), k = kl + (kr - kl) * (a + b) / 2;
+    const sx = u0 * sw, sww = sw / N, ddx = X0 + a * dw, ddw = (b - a) * dw + 0.6, ddh = dh * k;
+    c.drawImage(img, sx, 0, sww, sh, ddx, hy - ddh / 2, ddw, ddh);
+  }
+}
+
 export function compose(c: CanvasRenderingContext2D, W: number, H: number, layout: Layout, main: Camera, src: Record<Camera, Src | undefined>, xf: Record<Camera, Xf> = {}, all: Camera[] = []): Rect {
   // Lay out every camera the event has (not only the ones with a frame right now), so a camera that is
   // missing from one clip or failed to decode keeps its slot (shown as 'No video') instead of vanishing.
@@ -178,17 +200,18 @@ function tag(c: CanvasRenderingContext2D, [x, y, w, h]: Rect, label: string, f?:
 }
 
 // ---- stitch alignment prefs: per camera shift (fraction of drawn image), zoom, blend-width multiplier ----
-export interface StitchPref { dx: number; dy: number; z: number; b: number; }
+export interface StitchPref { dx: number; dy: number; z: number; b: number; kl: number; kr: number; rot: number; p: number; }
 /** defaults tuned on real HW4 footage (I-85 daytime, 2026-05-06) */
-const D = (dy = 0, z = 1.15, dx = 0): StitchPref => ({ dx, dy, z, b: 1 });
+const D = (dy = 0, z = 1.15, dx = 0, kl = 1, kr = 1, rot = 0, p = 0): StitchPref => ({ dx, dy, z, b: 1, kl, kr, rot, p });
 /** Defaults per layout family ('p' = panoramas, 's' = stitched all cameras), tuned with the edge-profile
  *  auto-align on real HW4 footage (I-85 daytime, 2026-05-06, medians over 5 frames). */
 export const STITCH_DEFAULTS: Record<string, Record<string, StitchPref>> = {
-  p: { front: D(), left_pillar: D(0.09, 1.25), left_repeater: D(0.09, 1.25), right_pillar: D(0.03, 1.25), right_repeater: D(0.055, 1.25), back: D(0.06, 1.25, 0.04) },
+  // D(dy, zoom, dx, leftEdgeHeight, rightEdgeHeight, tiltDeg, perspective): outer edges taller than inner ones (keystone) + slight tilt
+  p: { front: D(), left_pillar: D(0.05, 1.25, 0, 1.3, 0.85, -4), left_repeater: D(0.18, 1.25, 0, 1.7, 1.3, -3), right_pillar: D(0.03, 1.25, 0, 0.85, 1.3, 3), right_repeater: D(0.055, 1.25, 0, 1.3, 1.7, 3), back: D(0.06, 1.25, 0.04) },
   s: { front: D(), left_pillar: D(0, 1.15), left_repeater: D(0, 1.15), right_pillar: D(0, 1.15), right_repeater: D(0, 1.15), back: D(0.08, 1.25, 0.04) },
 };
 export const stitchGroup = (l: Layout) => l === 'stitch' ? 's' : 'p';
-const SKEY = 'tcc.stitch2';
+const SKEY = 'tcc.stitch3';
 let sCache: Record<string, Partial<StitchPref>> | null = null;
 function sLoad() { if (!sCache) { try { sCache = JSON.parse(localStorage.getItem(SKEY) || '{}'); } catch { sCache = {}; } } return sCache!; }
 export function stitchPref(cam: string, g = 'p'): StitchPref { return { ...(STITCH_DEFAULTS[g]?.[cam] ?? D()), ...(sLoad()[g + ':' + cam] ?? {}) } as StitchPref; }
@@ -199,7 +222,7 @@ export function setStitchPref(cam: string, v: Partial<StitchPref> | null, g = 'p
 export const resetStitch = () => { sCache = {}; try { localStorage.removeItem(SKEY); } catch { /* */ } };
 function withStitch(x: Xf | undefined, cam: string, g: string): Xf {
   const p = stitchPref(cam, g);
-  return [(x?.[0] ?? 0) + p.dx, (x?.[1] ?? 0) + p.dy, (x?.[2] ?? 1) * p.z];
+  return [(x?.[0] ?? 0) + p.dx, (x?.[1] ?? 0) + p.dy, (x?.[2] ?? 1) * p.z, p.kl, p.kr, p.rot, p.p];
 }
 
 /**
@@ -230,12 +253,12 @@ export function autoAlign(layout: Layout, src: Record<Camera, Src | undefined>, 
   for (const cell of order) {
     const s = src[cell.cam]; const pr = stitchPref(cell.cam, stitchGroup(layout));
     if (!s) continue;
-    if (!cell.f || cell.cam === 'front') { fit(bc, s, cell.r, undefined, cell.cover, [pr.dx, pr.dy, pr.z], cell.cam, cell.mirror, false); continue; }
+    if (!cell.f || cell.cam === 'front') { fit(bc, s, cell.r, undefined, cell.cover, [pr.dx, pr.dy, pr.z, pr.kl, pr.kr, pr.rot, pr.p], cell.cam, cell.mirror, false); continue; }
     const [x, y, w, h] = cell.r, f = cell.f.map(v => v * pr.b);
     // overlap band(s) in canvas coords
     const band: Rect = f[0] > 0 ? [x, y, Math.max(4, f[0]), h] : [x, y, w, Math.max(4, f[2])];
     const bx = Math.max(0, Math.floor(band[0])), by = Math.max(0, Math.floor(band[1])), bw = Math.min(W - bx, Math.ceil(band[2])), bh = Math.min(H - by, Math.ceil(band[3]));
-    if (bw < 3 || bh < 3) { fit(bc, s, cell.r, undefined, true, [pr.dx, pr.dy, pr.z], cell.cam, cell.mirror, false); continue; }
+    if (bw < 3 || bh < 3) { fit(bc, s, cell.r, undefined, true, [pr.dx, pr.dy, pr.z, pr.kl, pr.kr, pr.rot, pr.p], cell.cam, cell.mirror, false); continue; }
     // Compare row profiles of horizontal edges (barrier tops, lane lines, horizon) across the band: robust to the
     // different viewing angles of neighbouring cameras, which make pixel-level matching unreliable.
     const prof = (d: Uint8ClampedArray) => {
@@ -248,7 +271,7 @@ export function autoAlign(layout: Layout, src: Record<Camera, Src | undefined>, 
     const ref = vert ? prof(bc.getImageData(bx, by, bw, bh).data) : edges(bc.getImageData(bx, by, bw, bh).data, bw, bh);
     const score = (dx: number, dy: number) => {
       tc.clearRect(bx, by, bw, bh);
-      fit(tc, s, cell.r, undefined, true, [dx, dy, pr.z], cell.cam, cell.mirror, false);
+      fit(tc, s, cell.r, undefined, true, [dx, dy, pr.z, pr.kl, pr.kr, pr.rot, pr.p], cell.cam, cell.mirror, false);
       const d = tc.getImageData(bx, by, bw, bh).data;
       if (vert) { const g = prof(d); let c = 0; for (let k = 0; k < g.length; k++) c += g[k] * ref[k]; return -c / g.length; }
       const g = edges(d, bw, bh); let e = 0; for (let k = 0; k < g.length; k++) e += Math.abs(g[k] - ref[k]);
@@ -263,7 +286,7 @@ export function autoAlign(layout: Layout, src: Record<Camera, Src | undefined>, 
       }
     }
     out[cell.cam] = [best[0], best[1], bs];
-    fit(bc, s, cell.r, undefined, true, [best[0], best[1], pr.z], cell.cam, cell.mirror, false);
+    fit(bc, s, cell.r, undefined, true, [best[0], best[1], pr.z, pr.kl, pr.kr, pr.rot, pr.p], cell.cam, cell.mirror, false);
   }
   return out;
 }
