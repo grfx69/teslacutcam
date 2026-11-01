@@ -31,12 +31,14 @@ export type MapStyle = 'aerial' | 'streets' | 'dark' | 'none';
 export type MapZoom = 'close' | 'medium' | 'fit';
 const ESRI = 'https://server.arcgisonline.com/ArcGIS/rest/services/';
 // All keyless, CORS-enabled Esri tile services (no API key, no CARTO). max = deepest native zoom; deeper views overzoom.
-type Layer = { u: string; max: number };
-const E = (path: string, max = 19): Layer => ({ u: ESRI + path + '/MapServer/tile/{z}/{y}/{x}', max });
+type Layer = { u: string; max: number; dark?: boolean };
+const E = (path: string, max = 19, dark = false): Layer => ({ u: ESRI + path + '/MapServer/tile/{z}/{y}/{x}' + (dark ? '#dark' : ''), max, dark });
 const LAYERS: Record<Exclude<MapStyle, 'none'>, Layer[]> = {
   aerial: [E('World_Imagery'), E('Reference/World_Transportation'), E('Reference/World_Boundaries_and_Places')],
   streets: [E('World_Street_Map')],
-  dark: [E('Canvas/World_Dark_Gray_Base', 16), E('Canvas/World_Dark_Gray_Reference', 16)],
+  // Esri's own dark-gray canvas stops at z16 (blurry when following the car), so Dark is the street map
+  // (native to z19) with its lightness inverted per pixel: sharp at every zoom, hues kept (roads stay orange-ish).
+  dark: [E('World_Street_Map', 19, true)],
 };
 const ATTR: Record<string, string> = { aerial: 'Esri, Maxar, Earthstar Geographics', streets: 'Esri, HERE, Garmin, © OpenStreetMap', dark: 'Esri, HERE, Garmin, © OpenStreetMap' };
 type T = { img: HTMLImageElement | ImageBitmap | null; p: Promise<void> };
@@ -44,13 +46,25 @@ const cache = new Map<string, T>();
 let onTile: (() => void) | null = null, redrawQueued = false;
 /** called (throttled) whenever a tile finishes loading, so the live view can repaint */
 export const setTileListener = (f: (() => void) | null) => { onTile = f; };
+/** HSL-lightness inversion (keeps hue), dimmed: turns the light street map into a crisp night map. */
+async function darken(bm: ImageBitmap): Promise<ImageBitmap> {
+  const cv = new OffscreenCanvas(bm.width, bm.height), x = cv.getContext('2d')!; x.drawImage(bm, 0, 0);
+  const d = x.getImageData(0, 0, bm.width, bm.height), a = d.data;
+  for (let k = 0; k < a.length; k += 4) {
+    const r = a[k], g = a[k + 1], b = a[k + 2], sh = 255 - Math.max(r, g, b) - Math.min(r, g, b);
+    const R = r + sh, G = g + sh, B = b + sh, y = 0.3 * R + 0.59 * G + 0.11 * B, q = 0.45; // partly desaturate the inverted sepia
+    a[k] = (y + (R - y) * q) * 0.82 + 10; a[k + 1] = (y + (G - y) * q) * 0.82 + 12; a[k + 2] = (y + (B - y) * q) * 0.82 + 18;
+  }
+  x.putImageData(d, 0, 0); bm.close?.(); return createImageBitmap(cv);
+}
 function tile(url: string): T {
   let e = cache.get(url); if (e) return e;
   const t: T = { img: null, p: Promise.resolve() };
   t.p = (async () => {
     try {
-      const r = await fetch(url, { mode: 'cors' }); if (!r.ok) throw 0;
-      t.img = await createImageBitmap(await r.blob());
+      const r = await fetch(url.replace('#dark', ''), { mode: 'cors' }); if (!r.ok) throw 0;
+      const bm = await createImageBitmap(await r.blob());
+      t.img = url.endsWith('#dark') ? await darken(bm) : bm;
       if (onTile && !redrawQueued) { redrawQueued = true; setTimeout(() => { redrawQueued = false; onTile?.(); }, 120); }
     } catch { /* offline: path-only; retry this tile after 30 s */ setTimeout(() => { if (cache.get(url) === t) cache.delete(url); }, 30000); }
   })();
