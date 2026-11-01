@@ -132,10 +132,12 @@ export function compose(c: CanvasRenderingContext2D, W: number, H: number, layou
   if (typeof window !== "undefined" && W > 0) (window as any).__lastPlan = { W, H, cells: p.cells.map(c => ({ cam: c.cam, r: c.r })) };
   const showLabels = p.cells.length > 1;
   const stitched = p.cells.some(x => x.f);
+  if (stitched) p.cells.forEach(cell => { const sp = stitchPref(cell.cam, stitchGroup(layout)); if (cell.f) cell.f = cell.f.map(v => v * sp.b) as any; });
   p.cells.forEach((cell, i) => {
     const lab = showLabels && !stitched ? camLabel(cell.cam) : undefined;
-    if (!cell.f) return fit(c, src[cell.cam], cell.r, lab, cell.cover, xf[cell.cam], cell.cam, cell.mirror, !stitched);
-    feathered(c, i, src[cell.cam], cell.r, cell.f, xf[cell.cam], cell.cam, !!cell.mirror);
+    const x = stitched ? withStitch(xf[cell.cam], cell.cam, stitchGroup(layout)) : xf[cell.cam];
+    if (!cell.f) return fit(c, src[cell.cam], cell.r, lab, cell.cover, x, cell.cam, cell.mirror, !stitched);
+    feathered(c, i, src[cell.cam], cell.r, cell.f, x, cell.cam, !!cell.mirror);
   });
   if (stitched && showLabels) for (const cell of p.cells) tag(c, cell.r, camLabel(cell.cam) + (cell.mirror ? ' (mirrored)' : ''), cell.f);
   return p.hud;
@@ -173,4 +175,95 @@ function tag(c: CanvasRenderingContext2D, [x, y, w, h]: Rect, label: string, f?:
   const tw = c.measureText(label).width, tx = x + (f?.[0] ?? 0) + 8, ty = y + (f?.[2] ?? 0) + 6;
   c.fillStyle = 'rgba(0,0,0,0.45)'; c.fillRect(tx, ty, tw + 10, fs + 6);
   c.fillStyle = 'rgba(255,255,255,0.85)'; c.textBaseline = 'middle'; c.textAlign = 'left'; c.fillText(label, tx + 5, ty + 3 + fs / 2);
+}
+
+// ---- stitch alignment prefs: per camera shift (fraction of drawn image), zoom, blend-width multiplier ----
+export interface StitchPref { dx: number; dy: number; z: number; b: number; }
+/** defaults tuned on real HW4 footage (I-85 daytime, 2026-05-06) */
+const D = (dy = 0, z = 1.15, dx = 0): StitchPref => ({ dx, dy, z, b: 1 });
+/** Defaults per layout family ('p' = panoramas, 's' = stitched all cameras), tuned with the edge-profile
+ *  auto-align on real HW4 footage (I-85 daytime, 2026-05-06, medians over 5 frames). */
+export const STITCH_DEFAULTS: Record<string, Record<string, StitchPref>> = {
+  p: { front: D(), left_pillar: D(0.09, 1.25), left_repeater: D(0.09, 1.25), right_pillar: D(0.03, 1.25), right_repeater: D(0.055, 1.25), back: D(0.06, 1.25, 0.04) },
+  s: { front: D(), left_pillar: D(0, 1.15), left_repeater: D(0, 1.15), right_pillar: D(0, 1.15), right_repeater: D(0, 1.15), back: D(0.08, 1.25, 0.04) },
+};
+export const stitchGroup = (l: Layout) => l === 'stitch' ? 's' : 'p';
+const SKEY = 'tcc.stitch2';
+let sCache: Record<string, Partial<StitchPref>> | null = null;
+function sLoad() { if (!sCache) { try { sCache = JSON.parse(localStorage.getItem(SKEY) || '{}'); } catch { sCache = {}; } } return sCache!; }
+export function stitchPref(cam: string, g = 'p'): StitchPref { return { ...(STITCH_DEFAULTS[g]?.[cam] ?? D()), ...(sLoad()[g + ':' + cam] ?? {}) } as StitchPref; }
+export function setStitchPref(cam: string, v: Partial<StitchPref> | null, g = 'p') {
+  const k = g + ':' + cam, all = sLoad(); if (v) all[k] = { ...all[k], ...v }; else delete all[k];
+  try { localStorage.setItem(SKEY, JSON.stringify(all)); } catch { /* private mode */ }
+}
+export const resetStitch = () => { sCache = {}; try { localStorage.removeItem(SKEY); } catch { /* */ } };
+function withStitch(x: Xf | undefined, cam: string, g: string): Xf {
+  const p = stitchPref(cam, g);
+  return [(x?.[0] ?? 0) + p.dx, (x?.[1] ?? 0) + p.dy, (x?.[2] ?? 1) * p.z];
+}
+
+/**
+ * One-shot auto-align: for every blended camera (front stays fixed), search the shift that best matches its
+ * overlap band against what is already drawn there, comparing edge (gradient) maps so exposure differences
+ * between cameras don't matter. Runs on a small canvas; the result is saved as the camera's dx/dy.
+ */
+export function autoAlign(layout: Layout, src: Record<Camera, Src | undefined>, all: Camera[], range = 0.12): Record<string, [number, number, number]> {
+  const W = 480, H = Math.round(W * layoutAspect(layout));
+  const have = new Set([...all, ...Object.keys(src).filter(k => src[k])]);
+  const cams = [...CAMERAS, ...[...have].filter(k => !CAMERAS.includes(k))].filter(k => have.has(k));
+  const p = plan(W, H, layout, cams.includes('front') ? 'front' : cams[0], cams);
+  const base = new OffscreenCanvas(W, H), bc = base.getContext('2d', { willReadFrequently: true }) as unknown as CanvasRenderingContext2D;
+  const tmp = new OffscreenCanvas(W, H), tc = tmp.getContext('2d', { willReadFrequently: true }) as unknown as CanvasRenderingContext2D;
+  bc.fillStyle = '#000'; bc.fillRect(0, 0, W, H);
+  // alignment order: unfeathered cells first (anchors), then outward in plan order
+  const order = [...p.cells.filter(c => !c.f), ...p.cells.filter(c => c.f)];
+  const out: Record<string, [number, number, number]> = {};
+  const edges = (d: Uint8ClampedArray, w: number, h: number) => {
+    const g = new Float32Array(w * h);
+    for (let y = 1; y < h - 1; y++) for (let x = 1; x < w - 1; x++) {
+      const i = (y * w + x) * 4, L = (k: number) => d[k] * 0.3 + d[k + 1] * 0.59 + d[k + 2] * 0.11;
+      g[y * w + x] = Math.abs(L(i + 4) - L(i - 4)) + Math.abs(L(i + 4 * w) - L(i - 4 * w));
+    }
+    let m = 0; for (const v of g) m += v; m = m / g.length || 1; for (let k = 0; k < g.length; k++) g[k] /= m; // normalise contrast
+    return g;
+  };
+  for (const cell of order) {
+    const s = src[cell.cam]; const pr = stitchPref(cell.cam, stitchGroup(layout));
+    if (!s) continue;
+    if (!cell.f || cell.cam === 'front') { fit(bc, s, cell.r, undefined, cell.cover, [pr.dx, pr.dy, pr.z], cell.cam, cell.mirror, false); continue; }
+    const [x, y, w, h] = cell.r, f = cell.f.map(v => v * pr.b);
+    // overlap band(s) in canvas coords
+    const band: Rect = f[0] > 0 ? [x, y, Math.max(4, f[0]), h] : [x, y, w, Math.max(4, f[2])];
+    const bx = Math.max(0, Math.floor(band[0])), by = Math.max(0, Math.floor(band[1])), bw = Math.min(W - bx, Math.ceil(band[2])), bh = Math.min(H - by, Math.ceil(band[3]));
+    if (bw < 3 || bh < 3) { fit(bc, s, cell.r, undefined, true, [pr.dx, pr.dy, pr.z], cell.cam, cell.mirror, false); continue; }
+    // Compare row profiles of horizontal edges (barrier tops, lane lines, horizon) across the band: robust to the
+    // different viewing angles of neighbouring cameras, which make pixel-level matching unreliable.
+    const prof = (d: Uint8ClampedArray) => {
+      const r = new Float32Array(bh);
+      for (let yy = 1; yy < bh - 1; yy++) { let a = 0; for (let xx = 0; xx < bw; xx++) { const i = (yy * bw + xx) * 4, L = (k: number) => d[k] * 0.3 + d[k + 1] * 0.59 + d[k + 2] * 0.11; a += Math.abs(L(i + 4 * bw) - L(i - 4 * bw)); } r[yy] = a / bw; }
+      let m = 0; for (const v of r) m += v; m /= bh; let sd = 0; for (const v of r) sd += (v - m) ** 2; sd = Math.sqrt(sd / bh) || 1;
+      return r.map(v => (v - m) / sd);
+    };
+    const vert = f[0] > 0; // side-by-side seam: match vertical position; stacked seam: fall back to 2-D edge match
+    const ref = vert ? prof(bc.getImageData(bx, by, bw, bh).data) : edges(bc.getImageData(bx, by, bw, bh).data, bw, bh);
+    const score = (dx: number, dy: number) => {
+      tc.clearRect(bx, by, bw, bh);
+      fit(tc, s, cell.r, undefined, true, [dx, dy, pr.z], cell.cam, cell.mirror, false);
+      const d = tc.getImageData(bx, by, bw, bh).data;
+      if (vert) { const g = prof(d); let c = 0; for (let k = 0; k < g.length; k++) c += g[k] * ref[k]; return -c / g.length; }
+      const g = edges(d, bw, bh); let e = 0; for (let k = 0; k < g.length; k++) e += Math.abs(g[k] - ref[k]);
+      return e / g.length;
+    };
+    let best = [pr.dx, pr.dy], bs = score(pr.dx, pr.dy);
+    for (const st of [range / 10, range / 40]) {
+      const [cx, cy] = best;
+      for (let i = vert ? 0 : -4; i <= (vert ? 0 : 4); i++) for (let j = -10; j <= 10; j++) {
+        const dx = Math.max(-range, Math.min(range, cx + i * st)), dy = Math.max(-range, Math.min(range, cy + j * st));
+        const e = score(dx, dy); if (e < bs) { bs = e; best = [dx, dy]; }
+      }
+    }
+    out[cell.cam] = [best[0], best[1], bs];
+    fit(bc, s, cell.r, undefined, true, [best[0], best[1], pr.z], cell.cam, cell.mirror, false);
+  }
+  return out;
 }

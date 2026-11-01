@@ -2,7 +2,7 @@ import './style.css';
 import { buildLibrary, walkHandle, eventCams, camLabel, type Camera, type Entry, type TeslaEvent } from './library';
 import type { Telemetry } from './sei';
 import { setDefish, getDefish } from './defish';
-import { compose, plan, layoutAspect, type Layout } from './compose';
+import { compose, plan, layoutAspect, type Layout, stitchPref, setStitchPref, resetStitch, autoAlign, stitchGroup } from './compose';
 import { buildTrail, drawMapPanel, preloadTiles, setTileListener, type Trail } from './map';
 import { defaultRamp, findTriggers, rateAt, TRIGGER_LABEL, type RampOpts, type Trigger } from './ramps';
 import { defaultStab, type StabOpts } from './stab';
@@ -286,6 +286,40 @@ $('rate').onchange = () => { if (playing) play(); };
   const vis = () => { lab.hidden = !['stitch', 'panorear'].includes(layout()); };
   cb.addEventListener('change', () => { localStorage.setItem('tcc.rearMirror', cb.checked ? '1' : '0'); draw(); });
   $('layout').addEventListener('change', vis); vis();
+  // stitch alignment panel
+  const btn = document.createElement('button'); btn.id = 'alignBtn'; btn.textContent = 'Align seams…'; lab.after(btn);
+  const pn = document.createElement('div'); pn.id = 'alignPanel'; pn.hidden = true;
+  pn.style.cssText = 'position:fixed;right:16px;top:70px;z-index:50;background:#1b1d22;color:#ddd;border:1px solid #333;border-radius:8px;padding:10px 12px;font:13px system-ui;width:270px;box-shadow:0 6px 24px #0008';
+  const sl = (k: string, t: string, mn: number, mx: number, st: number) => `<label style="display:flex;gap:6px;align-items:center;margin:4px 0">${t}<input type="range" data-k="${k}" min="${mn}" max="${mx}" step="${st}" style="flex:1"><span data-v="${k}" style="width:40px;text-align:right"></span></label>`;
+  pn.innerHTML = `<b>Seam alignment</b> <button id="alClose" style="float:right">✕</button>
+    <div style="margin:6px 0"><select id="alCam" style="width:100%"></select></div>
+    ${sl('dx', 'Shift X', -0.2, 0.2, 0.002)}${sl('dy', 'Shift Y', -0.2, 0.2, 0.002)}${sl('z', 'Zoom', 1, 1.5, 0.01)}${sl('b', 'Blend', 0.25, 3, 0.05)}
+    <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:6px"><button id="alAuto" title="Match edges in each overlap on the current frame and save the offsets">Auto-align</button><button id="alReset">Reset camera</button><button id="alResetAll">Reset all</button></div>
+    <div id="alMsg" style="color:#9a9;margin-top:6px;min-height:1em"></div>`;
+  document.body.append(pn);
+  const camSel = $<HTMLSelectElement>('alCam');
+  const fill = () => {
+    camSel.innerHTML = cams.map(c => `<option value="${c}">${c.replace('_', ' ')}</option>`).join('');
+    sync();
+  };
+  const sync = () => { const p = stitchPref(camSel.value, stitchGroup(layout())) as any; pn.querySelectorAll<HTMLInputElement>('input[data-k]').forEach(i => { i.value = p[i.dataset.k!]; pn.querySelector(`[data-v="${i.dataset.k}"]`)!.textContent = (+p[i.dataset.k!]).toFixed(2); }); };
+  pn.addEventListener('input', e => { const i = e.target as HTMLInputElement; if (!i.dataset.k) return; setStitchPref(camSel.value, { [i.dataset.k]: +i.value }, stitchGroup(layout())); sync(); draw(); });
+  camSel.addEventListener('change', sync);
+  btn.addEventListener('click', () => { pn.hidden = !pn.hidden; if (!pn.hidden) fill(); });
+  $('alClose').addEventListener('click', e => { e.preventDefault(); pn.hidden = true; });
+  $('alReset').addEventListener('click', () => { setStitchPref(camSel.value, null, stitchGroup(layout())); sync(); draw(); });
+  $('alResetAll').addEventListener('click', () => { resetStitch(); sync(); draw(); });
+  $('alAuto').addEventListener('click', () => {
+    if (!ev || seg < 0) return;
+    const src: Record<Camera, HTMLVideoElement> = {};
+    for (const c of Object.keys(ev.segments[seg].files)) if (vids[c] && !vids[c].error) src[c] = vids[c];
+    const t0 = performance.now(), r = autoAlign(layout(), src, cams);
+    for (const [c, [dx, dy]] of Object.entries(r)) setStitchPref(c, { dx: +dx.toFixed(3), dy: +dy.toFixed(3) }, stitchGroup(layout()));
+    $('alMsg').textContent = `Aligned ${Object.keys(r).length} seams in ${Math.round(performance.now() - t0)} ms`;
+    sync(); draw();
+  });
+  const vis2 = () => { const on = ['stitch', 'pano', 'panorear'].includes(layout()); btn.hidden = !on; if (!on) pn.hidden = true; };
+  $('layout').addEventListener('change', () => { vis2(); if (!pn.hidden) sync(); }); vis2();
 }
 document.addEventListener('keydown', e => {
   const tg = e.target as HTMLElement;
@@ -401,7 +435,7 @@ track.addEventListener('pointermove', e => {
 track.addEventListener('pointerup', () => { drag = null; if (wasPlaying) setTimeout(play, 50); });
 $('setIn').onclick = () => { inT = now(); if (inT >= outT) outT = Infinity; $('inT').textContent = fmt(inT); drawTrack(); };
 $('setOut').onclick = () => { outT = Math.max(inT + 0.5, now()); $('outT').textContent = fmt(outT); drawTrack(); };
-const api = { get xopts() { return { ...(xopts ?? {}), hud: xHud }; }, get opts() { return { ...opts }; }, get features() { return JSON.parse(JSON.stringify(F)); }, get triggers() { return triggers; }, get trail() { return trail && { n: trail.x.length, single: trail.single, radius: trail.radius }; }, get support() { return support; }, memPlan: (...a: Parameters<typeof memPlan>) => memPlan(...a), get state() { return { inT, outT, cur, total, layout: layout(), cams, mode, expanded, geo: geoStatus, place: ev && seg >= 0 ? place(seg, frameIndex(tel[seg], master().currentTime)) : '' }; }, seek, get events() { return events.map(e => ({ id: e.id, name: e.name, cat: cat(e) })); } };
+const api = { autoAlign: () => { $('alAuto').click(); return $('alMsg').textContent; }, stitch: (c: string) => stitchPref(c, stitchGroup(layout())), setStitch: (c: string, v: any) => { setStitchPref(c, v, stitchGroup(layout())); draw(); }, get xopts() { return { ...(xopts ?? {}), hud: xHud }; }, get opts() { return { ...opts }; }, get features() { return JSON.parse(JSON.stringify(F)); }, get triggers() { return triggers; }, get trail() { return trail && { n: trail.x.length, single: trail.single, radius: trail.radius }; }, get support() { return support; }, memPlan: (...a: Parameters<typeof memPlan>) => memPlan(...a), get state() { return { inT, outT, cur, total, layout: layout(), cams, mode, expanded, geo: geoStatus, place: ev && seg >= 0 ? place(seg, frameIndex(tel[seg], master().currentTime)) : '' }; }, seek, get events() { return events.map(e => ({ id: e.id, name: e.name, cat: cat(e) })); } };
 (window as any).__teslacam = (window as any).__teslacutcam = api;
 
 function stats() {
