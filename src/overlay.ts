@@ -19,6 +19,29 @@ export const defaultOverlay: OverlayOpts = {
 
 export interface HudFrame { t: Telemetry | null; i: number; time: Date; place: string; }
 
+export const FSD_BLUE = '#3e8bff';
+/** Procedural sport wheel (rim, 3 spokes, bolted hub, red 12-o'clock stripe), centred at 0,0, outer radius R. */
+export function drawWheel(c: CanvasRenderingContext2D, R: number, rim: string) {
+  const ri = R * 0.8, ink = 'rgba(0,0,0,0.85)', lw = Math.max(1, R * 0.045), spoke = '#d9dde3';
+  c.lineJoin = 'round'; c.lineWidth = lw; c.strokeStyle = ink;
+  // spokes (left, right, bottom) + hub, drawn under the rim
+  c.fillStyle = spoke; c.beginPath();
+  for (const sgn of [-1, 1]) {
+    c.moveTo(0, -R * 0.16); c.lineTo(sgn * ri * 1.02, -R * 0.13); c.lineTo(sgn * ri * 1.02, R * 0.14);
+    c.quadraticCurveTo(sgn * R * 0.4, R * 0.1, 0, R * 0.2); c.closePath();
+  }
+  c.moveTo(-R * 0.17, R * 0.1); c.lineTo(-R * 0.13, ri * 1.02); c.lineTo(R * 0.13, ri * 1.02); c.lineTo(R * 0.17, R * 0.1); c.closePath();
+  c.fill(); c.stroke();
+  c.fillStyle = 'rgba(0,0,0,0.55)'; c.beginPath(); for (const sgn of [-1, 1]) c.ellipse(sgn * R * 0.55, R * 0.01, R * 0.15, R * 0.03, sgn * -0.05, 0, Math.PI * 2); c.fill();
+  c.fillStyle = spoke; c.beginPath(); c.arc(0, 0, R * 0.3, 0, Math.PI * 2); c.fill(); c.stroke();
+  c.fillStyle = ink; c.beginPath(); c.arc(0, 0, R * 0.14, 0, Math.PI * 2); c.fill();
+  c.fillStyle = '#fff'; c.lineWidth = lw * 0.6;
+  for (let k = 0; k < 5; k++) { const q = -Math.PI / 2 + k * 2 * Math.PI / 5; c.beginPath(); c.arc(Math.cos(q) * R * 0.22, Math.sin(q) * R * 0.22, R * 0.035, 0, Math.PI * 2); c.fill(); c.stroke(); }
+  // rim (annulus) in the state colour, then the red stripe on top so it is never hidden
+  c.lineWidth = lw; c.fillStyle = rim; c.beginPath(); c.arc(0, 0, R, 0, Math.PI * 2); c.moveTo(ri, 0); c.arc(0, 0, ri, 0, Math.PI * 2, true); c.fill('evenodd'); c.stroke();
+  const h = 0.085; c.fillStyle = '#ff1a1a'; c.beginPath();
+  c.arc(0, 0, R, -Math.PI / 2 - h, -Math.PI / 2 + h); c.arc(0, 0, ri, -Math.PI / 2 + h * 0.85, -Math.PI / 2 - h * 0.85, true); c.closePath(); c.fill(); c.stroke();
+}
 const AP_NAME = ['', 'FSD', 'Autosteer', 'TACC'];
 const GEAR = ['P', 'D', 'R', 'N'];
 const G = 9.80665;
@@ -71,19 +94,15 @@ export function drawHud(c: CanvasRenderingContext2D, W: number, H: number, f: Hu
     if (o.autopilot) {
       const ap = t!.ap[i];
       if (ap) {
-        c.fillStyle = ap === 1 ? '#3e8bff' : ap === 2 ? '#3ec1ff' : '#9aa';
+        c.fillStyle = ap === 1 ? FSD_BLUE : ap === 2 ? '#3ec1ff' : '#9aa';
         c.beginPath(); c.roundRect(cx + 120 * s, cy + 14 * s, 110 * s, 28 * s, 14 * s); c.fill();
         c.fillStyle = '#fff'; c.font = font(15, 700); c.textAlign = 'center';
         c.fillText(AP_NAME[ap] ?? 'AP', cx + 175 * s, cy + 28 * s);
       }
     }
     if (o.steering) {
-      const r = 30 * s, wx = cx + 160 * s, wy = cy + 90 * s, a = t!.steer[i] * Math.PI / 180;
-      c.save(); c.translate(wx, wy); c.rotate(a);
-      c.strokeStyle = t!.ap[i] === 1 || t!.ap[i] === 2 ? '#3ec1ff' : '#fff'; c.lineWidth = 5 * s;
-      c.beginPath(); c.arc(0, 0, r, 0, Math.PI * 2); c.stroke();
-      c.beginPath(); c.moveTo(-r, 0); c.lineTo(r, 0); c.moveTo(0, 0); c.lineTo(0, r); c.stroke();
-      c.restore();
+      const r = 32 * s, wx = cx + 160 * s, wy = cy + 90 * s, a = t!.steer[i] * Math.PI / 180;
+      c.save(); c.translate(wx, wy); c.rotate(a); drawWheel(c, r, t!.ap[i] === 1 ? FSD_BLUE : '#fff'); c.restore();
       c.fillStyle = '#ccc'; c.font = font(12, 500); c.textAlign = 'center';
       c.fillText(`${Math.round(t!.steer[i])}°`, wx, wy + r + 14 * s);
     }
