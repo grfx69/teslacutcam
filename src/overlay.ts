@@ -127,12 +127,13 @@ export function drawHud(c: CanvasRenderingContext2D, W: number, H: number, f: Hu
     }
     if (o.blinkers) {
       const fl = t!.flags[i], on = Math.floor(f.time.getTime() / 400) % 2 === 0;
+      // x = tip of the arrow head; dir = -1 points left (outward), +1 points right
       const arrow = (x: number, dir: number, lit: boolean) => {
         c.fillStyle = lit && on ? '#3ddc84' : 'rgba(255,255,255,0.12)';
         c.beginPath(); const y = cy + 28 * s;
-        c.moveTo(x, y); c.lineTo(x + dir * 14 * s, y - 10 * s); c.lineTo(x + dir * 14 * s, y + 10 * s); c.fill();
+        c.moveTo(x, y); c.lineTo(x - dir * 14 * s, y - 10 * s); c.lineTo(x - dir * 14 * s, y + 10 * s); c.closePath(); c.fill();
       };
-      arrow(cx + 245 * s, -1, !!(fl & 1)); arrow(cx + 262 * s, 1, !!(fl & 2));
+      arrow(cx + 231 * s, -1, !!(fl & 1)); arrow(cx + 276 * s, 1, !!(fl & 2));
     }
   }
 
