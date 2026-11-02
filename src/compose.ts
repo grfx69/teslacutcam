@@ -161,8 +161,23 @@ export function compose(c: CanvasRenderingContext2D, W: number, H: number, layou
     if (!cell.f) return fit(c, src[cell.cam], cell.r, lab, cell.cover, x, cell.cam, cell.mirror, !stitched);
     feathered(c, i, src[cell.cam], cell.r, cell.f, x, cell.cam, !!cell.mirror);
   });
+  if (layout === 'pano' || layout === 'panorear') trapezoid(c, p.cells, W);
   if (stitched && showLabels) for (const cell of p.cells) tag(c, cell.r, camLabel(cell.cam) + (cell.mirror ? ' (mirrored)' : ''), cell.f);
   return p.hud;
+}
+
+/** Panorama envelope (like the hand-made mockups): the front is the shortest tile and the side tiles grow
+ *  linearly to full height at the outer edges, so every side camera is shown as a visible trapezoid. */
+export const PANO_ENVELOPE = 0.72;
+function trapezoid(c: CanvasRenderingContext2D, cells: Plan['cells'], W: number) {
+  const fr = cells.find(x => x.cam === 'front' && PANO.includes(x.cam)), row = cells.filter(x => PANO.includes(x.cam));
+  if (!row.length) return;
+  const [, y, , h] = (fr ?? row[0]).r, cx0 = fr ? fr.r[0] : W / 2, cx1 = fr ? fr.r[0] + fr.r[2] : W / 2;
+  const m = h * (1 - PANO_ENVELOPE) / 2;
+  c.save(); c.fillStyle = '#000';
+  c.beginPath(); c.moveTo(0, y - 1); c.lineTo(W, y - 1); c.lineTo(W, y); c.lineTo(cx1, y + m); c.lineTo(cx0, y + m); c.lineTo(0, y); c.closePath(); c.fill();
+  c.beginPath(); c.moveTo(0, y + h + 1); c.lineTo(W, y + h + 1); c.lineTo(W, y + h); c.lineTo(cx1, y + h - m); c.lineTo(cx0, y + h - m); c.lineTo(0, y + h); c.closePath(); c.fill();
+  c.restore();
 }
 
 const pool: (HTMLCanvasElement | OffscreenCanvas)[] = [];
@@ -210,8 +225,10 @@ export const STITCH_DEFAULTS: Record<string, Record<string, StitchPref>> = {
   p: { front: D(), left_pillar: D(0.05, 1.25, 0, 1.3, 0.85, -4), left_repeater: D(0.18, 1.25, 0, 1.7, 1.3, -3), right_pillar: D(0.03, 1.25, 0, 0.85, 1.3, 3), right_repeater: D(0.055, 1.25, 0, 1.3, 1.7, 3), back: D(0.06, 1.25, 0.04) },
   s: { front: D(), left_pillar: D(0, 1.15), left_repeater: D(0, 1.15), right_pillar: D(0, 1.15), right_repeater: D(0, 1.15), back: D(0.08, 1.25, 0.04) },
 };
+// panoramas: narrow seams (30% of the overlap is cross-faded, the rest is a hard cut)
+for (const v of Object.values(STITCH_DEFAULTS.p)) v.b = 0.3;
 export const stitchGroup = (l: Layout) => l === 'stitch' ? 's' : 'p';
-const SKEY = 'tcc.stitch3';
+const SKEY = 'tcc.stitch4';
 let sCache: Record<string, Partial<StitchPref>> | null = null;
 function sLoad() { if (!sCache) { try { sCache = JSON.parse(localStorage.getItem(SKEY) || '{}'); } catch { sCache = {}; } } return sCache!; }
 export function stitchPref(cam: string, g = 'p'): StitchPref { return { ...(STITCH_DEFAULTS[g]?.[cam] ?? D()), ...(sLoad()[g + ':' + cam] ?? {}) } as StitchPref; }

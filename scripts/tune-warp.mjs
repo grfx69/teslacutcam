@@ -4,7 +4,7 @@ import { openFolder, startServer } from './lib.mjs';
 await startServer();
 const b = await chromium.launch(); const p = await b.newPage({ viewport: { width: 1500, height: 1000 } });
 await p.route(/arcgisonline/, r => r.abort());
-await p.goto('http://localhost:8123/'); await openFolder(p, '/workspace/tf3');
+await p.goto(process.env.URL || 'http://localhost:8123/'); await openFolder(p, '/workspace/tf3');
 await p.click('.ev >> nth=0'); await p.waitForSelector('#busy', { state: 'hidden', timeout: 60000 });
 await p.evaluate(() => { const o = JSON.parse(localStorage.getItem('teslacam.overlay') || '{}'); }); 
 await p.uncheck('#hud').catch(() => {});

@@ -811,3 +811,6 @@ document.querySelectorAll<HTMLInputElement>('.dfcb').forEach(cb => {
     setDefish(on); localStorage.setItem('tcc.defish2', JSON.stringify(on)); draw();
   });
 });
+
+declare const __BUILD__: string;
+{ const b = document.getElementById("buildv"); if (b) b.textContent = __BUILD__ + " · seams v4"; }
