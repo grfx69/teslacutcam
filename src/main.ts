@@ -300,13 +300,15 @@ $('rate').onchange = () => { if (playing) play(); };
   document.body.append(pn);
   const camSel = $<HTMLSelectElement>('alCam');
   const fill = () => {
-    camSel.innerHTML = cams.filter(c => !is3() || c.includes('pillar') || (layout() === 'pano' && c.includes('repeater'))).map(c => `<option value="${c}">${c.replace('_', ' ')}</option>`).join('');
+    const prev = camSel.value;
+    camSel.innerHTML = cams.filter(c => !is3() || c.includes('pillar') || c === 'front' || (layout() === 'pano' && c.includes('repeater'))).map(c => `<option value="${c}">${c.replace('_', ' ')}</option>`).join('');
+    if ([...camSel.options].some(o => o.value === prev)) camSel.value = prev;
     sync();
   };
-  const P3K: [string, string, number, number][] = [['ix', 'Seam X', -2, 1.5], ['it', 'Seam top Y', -2, 2], ['ib', 'Seam bottom Y', -1, 3], ['ox', 'Outer X', -4, 0.5], ['ot', 'Outer top Y', -2.5, 2.5], ['ob', 'Outer bottom Y', -1, 4], ['rot', 'Rotate °', -45, 45], ['lens', 'Fisheye', -0.6, 0.8]];
-  const p3get = (c: string) => { const p = p3Pins(c), L = c.startsWith('left'); const [i1, i2, o1, o2] = L ? [p.tr, p.br, p.tl, p.bl] : [p.tl, p.bl, p.tr, p.br];
-    const f = (x: number) => L ? x : 1 - x; return { ix: f(i1[0]), it: i1[1], ib: i2[1], ox: f(o1[0]), ot: o1[1], ob: o2[1], lens: p.lens, rot: p.rot || 0 } as Record<string, number>; };
-  const p3set = (c: string, v: Record<string, number>) => { const L = c.startsWith('left'), f = (x: number) => L ? x : 1 - x;
+  const P3K: [string, string, number, number][] = [['ix', 'Seam X', -2, 1.5], ['it', 'Seam top Y', -2, 2], ['ib', 'Seam bottom Y', -1, 3], ['ox', 'Outer X', -4, 0.5], ['ot', 'Outer top Y', -2.5, 2.5], ['ob', 'Outer bottom Y', -1, 4], ['rot', 'Rotate °', -45, 45], ['lens', 'Fisheye', -0.6, 0.8], ['mx', 'Move X', -2, 2], ['my', 'Move Y', -2, 2], ['sc', 'Size (front)', 0.3, 3]];
+  const p3get = (c: string) => { if (c === 'front') { const q = p3Pins('front') as any || {}; return { mx: q.mx || 0, my: q.my || 0, sc: q.sc ?? 1 } as Record<string, number>; } const p = p3Pins(c), L = c.startsWith('left'); const [i1, i2, o1, o2] = L ? [p.tr, p.br, p.tl, p.bl] : [p.tl, p.bl, p.tr, p.br];
+    const f = (x: number) => L ? x : 1 - x; return { ix: f(i1[0]), it: i1[1], ib: i2[1], ox: f(o1[0]), ot: o1[1], ob: o2[1], lens: p.lens, rot: p.rot || 0, mx: p.mx || 0, my: p.my || 0, sc: 1 } as Record<string, number>; };
+  const p3set = (c: string, v: Record<string, number>) => { if (c === 'front') { setP3Pins('front', { mx: v.mx, my: v.my, sc: v.sc } as any); return; } setP3Pins(c, { mx: v.mx, my: v.my } as any); const L = c.startsWith('left'), f = (x: number) => L ? x : 1 - x;
     const i1: [number, number] = [f(v.ix), v.it], i2: [number, number] = [f(v.ix), v.ib], o1: [number, number] = [f(v.ox), v.ot], o2: [number, number] = [f(v.ox), v.ob];
     setP3Pins(c, L ? { tr: i1, br: i2, tl: o1, bl: o2, lens: v.lens, rot: v.rot } : { tl: i1, bl: i2, tr: o1, br: o2, lens: v.lens, rot: v.rot }); };
   const sl3 = (k: string, t: string, mn: number, mx: number, st: number) => `<label style="display:flex;gap:6px;align-items:center;margin:3px 0"><span style="width:96px">${t}</span><input type="range" data-k="${k}" min="${mn}" max="${mx}" step="${st}" style="flex:1"><input type="number" data-k="${k}" data-num="1" step="${st}" style="width:76px"></label>`;
@@ -319,9 +321,9 @@ $('rate').onchange = () => { if (playing) play(); };
   pn.querySelector('#alAuto')!.insertAdjacentHTML('beforebegin', '');
   pn.querySelector('select')!.parentElement!.insertAdjacentHTML('afterend', p3html());
   const is3 = () => layout() === 'pano3' || layout() === 'pano';
-  const sync = () => { pn.querySelectorAll<HTMLElement>('label').forEach(l => { const k = l.querySelector('input')?.dataset.k || ''; l.style.display = (k.startsWith('p3') === is3()) ? 'flex' : 'none'; });
+  const sync = () => { pn.querySelectorAll<HTMLElement>('label').forEach(l => { const k = l.querySelector('input')?.dataset.k || ''; const fk = ['p3mx', 'p3my', 'p3sc', 'p3fe'], fr = camSel.value === 'front'; l.style.display = (k.startsWith('p3') === is3()) && (!k.startsWith('p3') || (fr ? fk.includes(k) : k !== 'p3sc')) ? 'flex' : 'none'; });
     ($('alAuto') as HTMLElement).hidden = is3(); $('p3pre').style.display = is3() ? 'flex' : 'none';
-    if (is3()) { if (!/pillar|repeater/.test(camSel.value)) return; const v = p3get(camSel.value); v.fe = p3Blend(); for (const k of [...P3K.map(x => x[0]), 'fe']) pn.querySelectorAll<HTMLInputElement>(`[data-k="p3${k}"]`).forEach(i => { if (document.activeElement !== i) i.value = String(+v[k].toFixed(k === 'rot' ? 1 : 3)); }); preFill(); return; }
+    if (is3()) { if (!/pillar|repeater|front/.test(camSel.value)) return; const v = p3get(camSel.value); v.fe = p3Blend(); for (const k of [...P3K.map(x => x[0]), 'fe']) pn.querySelectorAll<HTMLInputElement>(`[data-k="p3${k}"]`).forEach(i => { if (document.activeElement !== i && v[k] != null) i.value = String(+v[k].toFixed(k === 'rot' ? 1 : 3)); }); preFill(); return; }
     const p = stitchPref(camSel.value, stitchGroup(layout())) as any; pn.querySelectorAll<HTMLInputElement>('input[data-k]').forEach(i => { if (i.dataset.k!.startsWith('p3')) return; i.value = p[i.dataset.k!]; pn.querySelector(`[data-v="${i.dataset.k}"]`)!.textContent = (+p[i.dataset.k!]).toFixed(2); }); };
   pn.addEventListener('input', e => { const i = e.target as HTMLInputElement; if (!i.dataset.k) return;
     if (i.dataset.k.startsWith('p3')) { if (i.value === '' || isNaN(+i.value)) return; const k = i.dataset.k.slice(2); if (k === 'fe') setP3Blend(+i.value); else { const v = p3get(camSel.value); v[k] = +i.value; p3set(camSel.value, v); } localStorage.removeItem('tcc.p3active'); sync(); draw(); return; } setStitchPref(camSel.value, { [i.dataset.k]: +i.value }, stitchGroup(layout())); sync(); draw(); });
@@ -849,4 +851,4 @@ document.querySelectorAll<HTMLInputElement>('.dfcb').forEach(cb => {
 });
 
 declare const __BUILD__: string;
-{ const b = document.getElementById("buildv"); if (b) b.textContent = __BUILD__ + " · seams v7"; }
+{ const b = document.getElementById("buildv"); if (b) b.textContent = __BUILD__ + " · seams v8"; }

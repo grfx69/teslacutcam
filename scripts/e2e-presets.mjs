@@ -12,6 +12,7 @@ for (const L of ['pano', 'pano3']) {
   ok(await p.locator('#p3pre').isVisible(), L + ' panel visible');
   const r = p.locator('input[type=range][data-k="p3rot"]'); ok(await r.getAttribute('max') === '45', 'rotate range ±45');
 }
+await p.selectOption('#alCam', 'left_pillar'); await p.waitForTimeout(150);
 await p.evaluate(() => window.__teslacam.seek(62)); await p.waitForTimeout(800);
 const n = p.locator('input[type=number][data-k="p3rot"]'); const before = await n.inputValue();
 await n.focus(); await p.keyboard.press('ArrowUp'); await p.waitForTimeout(200);
@@ -30,4 +31,13 @@ await p.setInputFiles('#preFile', f); await p.waitForTimeout(300);
 ok((await p.locator('#preSel').innerHTML()).includes('Test A'), 'import JSON');
 p.once('dialog', d => d.accept()); await p.click('#preDef'); await p.waitForTimeout(200);
 ok(+(await n.inputValue()) === 15 || true, 'reset -> rot ' + await n.inputValue());
+for (const cam of ['front', 'left_pillar']) {
+  await p.selectOption('#alCam', cam); await p.waitForTimeout(150);
+  ok(await p.locator('input[type=number][data-k="p3mx"]').isVisible() && await p.locator('input[type=number][data-k="p3my"]').isVisible(), cam + ' move X/Y visible');
+  ok((await p.locator('input[type=number][data-k="p3sc"]').isVisible()) === (cam === 'front'), cam + ' size only on front');
+  const a = await p.evaluate(() => JSON.stringify(window.__lastPlan?.cells || [])); await p.fill('input[type=number][data-k="p3my"]', '0.3'); await p.waitForTimeout(400);
+  const st = await p.evaluate(() => localStorage.getItem('tcc.pano3v1')); ok(st.includes('"my":0.3'), cam + ' move stored ' + st.slice(0, 120));
+}
+p.once('dialog', d => d.accept('MoveTest')); await p.click('#preSave'); await p.waitForTimeout(200);
+ok(JSON.stringify(await p.evaluate(() => JSON.parse(localStorage.getItem('tcc.p3presets')).MoveTest)).includes('"my":0.3'), 'move saved in preset');
 console.log('bad', bad, 'errors', errs); await b.close(); process.exit(0);
