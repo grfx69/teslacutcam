@@ -9,18 +9,27 @@ export interface Pins { tl: Pin; tr: Pin; br: Pin; bl: Pin; lens: number; rot?: 
 export const P3_CAMS = ['left_pillar', 'front', 'right_pillar'] as const;
 export const P5_CAMS = ['left_repeater', 'left_pillar', 'front', 'right_pillar', 'right_repeater'] as const;
 /** defaults fitted on the 2026-05-06 07:23:49 HW4 clip (barrier top/base, lane edge, guardrail matched at each seam) */
-export const P3_DEFAULTS: Record<string, Pins> = {
+export const P3_DEFAULTS_V8: Record<string, Pins> = {
   left_pillar: { tl: [-0.87, 0.094], tr: [0.0276, 0.0816], br: [0.0276, 0.9516], bl: [-0.87, 1.294], lens: 0.06, rot: 0 },
   right_pillar: { tl: [0.9724, 0.109], tr: [1.87, 0.059], br: [1.87, 1.259], bl: [0.9724, 0.979], lens: 0.06, rot: 0 },
   left_repeater: { tl: [-1.69, -0.275], tr: [-0.84, -0.191], br: [-0.84, 0.922], bl: [-1.69, 1.005], lens: 0.06, rot: 15 },
   right_repeater: { tl: [1.84, -0.109], tr: [2.69, -0.199], br: [2.69, 1.181], bl: [1.84, 1.091], lens: 0.06, rot: -15 },
 };
+/** seams v9 defaults (2026-06-22 09:59 truck + 09:57 crosswalk): front scaled up to the pillars' height, pillars butt
+ * against / slightly under the front's edges (narrow feather), aligned on the road edge + far background, pillars not
+ * squeezed horizontally. Saved views from v8 and earlier carry no `_v` and keep using P3_DEFAULTS_V8, so they look
+ * exactly as they did. */
+export const P3_DEFAULTS: Record<string, Pins> = {"front": {"tl": [0, 0], "tr": [1, 0], "br": [1, 1], "bl": [0, 1], "lens": 0, "sc": 1.7, "mx": 0, "my": 0}, "left_pillar": {"tl": [-2.17, -0.554], "tr": [-0.3, -0.214], "br": [-0.3, 1.316], "bl": [-2.17, 1.656], "lens": 0.06, "rot": 0}, "right_pillar": {"tl": [1.3, -0.214], "tr": [3.17, -0.554], "br": [3.17, 1.656], "bl": [1.3, 1.316], "lens": 0.06, "rot": 0}, "left_repeater": {"tl": [-3.6802, -1.2336], "tr": [-2.1147, -1.0789], "br": [-2.1147, 0.9709], "bl": [-3.6802, 1.1238], "lens": 0.06, "rot": 15}, "right_repeater": {"tl": [3.1147, -0.8634], "tr": [4.6802, -1.0292], "br": [4.6802, 1.5124], "bl": [3.1147, 1.3466], "lens": 0.06, "rot": -15}};
 const KEY = 'tcc.pano3v1';
 let cache: Record<string, Partial<Pins>> | null = null;
 const load = () => { if (!cache) { try { cache = JSON.parse(localStorage.getItem(KEY) || '{}'); } catch { cache = {}; } } return cache!; };
-export const p3Pins = (cam: string): Pins => ({ ...P3_DEFAULTS[cam], ...(load()[cam] ?? {}) } as Pins);
+const CAMS5 = ['left_repeater', 'left_pillar', 'front', 'right_pillar', 'right_repeater'];
+/** a stored view with camera edits but no version tag was made against the v8 defaults */
+const legacy = (a: Record<string, any>) => !a._v && CAMS5.some(c => a[c]);
+const defs = () => legacy(load()) ? P3_DEFAULTS_V8 : P3_DEFAULTS;
+export const p3Pins = (cam: string): Pins => ({ ...(defs()[cam] ?? {}), ...(load()[cam] ?? {}) } as Pins);
 export function setP3Pins(cam: string, v: Partial<Pins> | null) {
-  const a = load(); if (v) a[cam] = { ...a[cam], ...v }; else delete a[cam];
+  const a = load() as any; if (!legacy(a)) a._v = 9; if (v) a[cam] = { ...a[cam], ...v }; else delete a[cam];
   try { localStorage.setItem(KEY, JSON.stringify(a)); } catch { /* */ }
 }
 /** whole pin set (all cameras + '_fe' blend) for presets */
@@ -31,7 +40,7 @@ export const setP3Blend = (v: number) => { const a = load() as any; a._fe = { v 
 const PK = 'tcc.p3presets', AK = 'tcc.p3active';
 export const p3Presets = (): Record<string, any> => { try { return JSON.parse(localStorage.getItem(PK) || '{}'); } catch { return {}; } };
 export const p3Active = () => localStorage.getItem(AK) || '';
-export function savePreset(name: string) { const a = p3Presets(); a[name] = p3All(); localStorage.setItem(PK, JSON.stringify(a)); localStorage.setItem(AK, name); }
+export function savePreset(name: string) { const a = p3Presets(), cur = load() as any; if (!legacy(cur)) cur._v = 9; a[name] = p3All(); localStorage.setItem(PK, JSON.stringify(a)); localStorage.setItem(AK, name); }
 export function loadPreset(name: string) { const a = p3Presets()[name]; if (!a) return false; setP3All(a); localStorage.setItem(AK, name); return true; }
 export function deletePreset(name: string) { const a = p3Presets(); delete a[name]; localStorage.setItem(PK, JSON.stringify(a)); if (p3Active() === name) localStorage.removeItem(AK); }
 export function importPresets(j: any) { const a = { ...p3Presets(), ...(j.presets || {}) }; localStorage.setItem(PK, JSON.stringify(a)); if (j.current) setP3All(j.current); if (j.active) localStorage.setItem(AK, j.active); }
@@ -40,7 +49,7 @@ export const resetP3 = () => { cache = {}; try { localStorage.removeItem(KEY); l
 /** pins with the whole-camera Move X/Y applied (shape unchanged) */
 export const p3Eff = (cam: string): Pins => { const p = p3Pins(cam), dx = p.mx || 0, dy = p.my || 0; const m = (q: Pin): Pin => [q[0] + dx, q[1] + dy]; return { ...p, tl: m(p.tl), tr: m(p.tr), br: m(p.br), bl: m(p.bl) }; };
 /** front rect in front units: [x0, y0, w, h] (Move X/Y + Size about its centre; always the full frame) */
-export const p3Front = (): [number, number, number, number] => { const f = (load().front || {}) as Partial<Pins>, sc = f.sc ?? 1; return [(f.mx || 0) + 0.5 - sc / 2, (f.my || 0) + 0.5 - sc / 2, sc, sc]; };
+export const p3Front = (): [number, number, number, number] => { const f = p3Pins('front') as Partial<Pins>, sc = f.sc ?? 1; return [(f.mx || 0) + 0.5 - sc / 2, (f.my || 0) + 0.5 - sc / 2, sc, sc]; };
 const sides = (n: 3 | 5) => (n === 5 ? P5_CAMS : P3_CAMS).filter(c => c !== 'front');
 
 const FRONT_AR = 1876 / 2896; // HW4 front h/w (others are scaled to it)
