@@ -6,7 +6,7 @@ const errs = []; if (process.env.OFFLINE) await p.route(/arcgisonline|cartocdn|b
 await p.goto(url); await openFolder(p, '/workspace/test-footage');
 await p.click('.ev >> nth=1'); await p.waitForSelector('#busy', { state: 'hidden', timeout: 60000 }); await p.waitForTimeout(1500);
 let bad = 0;
-for (const l of ['grid', 'pip', 'pano3']) for (const main of l === 'pip' ? ['front', 'back'] : ['front']) {
+for (const l of ['grid', 'pip', 'pano3', 'pano']) for (const main of l === 'pip' ? ['front', 'back'] : ['front']) {
   await p.selectOption('#layout', l); if (l === 'pip') await p.selectOption('#cam', main);
   await p.waitForTimeout(400);
   const lp = await p.evaluate(() => window.__lastPlan); const cells = lp.cells;

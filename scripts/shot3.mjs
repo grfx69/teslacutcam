@@ -10,7 +10,7 @@ if (process.env.PINS) await p.evaluate(v => localStorage.setItem('tcc.pano3v1', 
 await p.reload(); await openFolder(p, process.env.DIR || '/workspace/tf3');
 await p.click(`.ev >> nth=${process.env.EV || 0}`); await p.waitForSelector('#busy', { state: 'hidden', timeout: 60000 });
 await p.uncheck('#hud').catch(() => {});
-await p.selectOption('#layout', 'pano3');
+await p.selectOption('#layout', process.env.L || 'pano3');
 for (const t of (process.env.T || '20').split(',')) { await p.evaluate(t => window.__teslacam.seek(+t), t); await p.waitForTimeout(1200);
   await p.locator('#screen').screenshot({ path: `/workspace/p3-${process.env.TAG || 'a'}-${t}.png` }); }
 console.log(await p.textContent('h1'));
