@@ -12,8 +12,8 @@ export const P5_CAMS = ['left_repeater', 'left_pillar', 'front', 'right_pillar',
 export const P3_DEFAULTS: Record<string, Pins> = {
   left_pillar: { tl: [-0.87, 0.094], tr: [0.0276, 0.0816], br: [0.0276, 0.9516], bl: [-0.87, 1.294], lens: 0.06, rot: 0 },
   right_pillar: { tl: [0.9724, 0.109], tr: [1.87, 0.059], br: [1.87, 1.259], bl: [0.9724, 0.979], lens: 0.06, rot: 0 },
-  left_repeater: { tl: [-1.69, 0.125], tr: [-0.84, 0.209], br: [-0.84, 1.322], bl: [-1.69, 1.405], lens: 0.06, rot: -6 },
-  right_repeater: { tl: [1.84, 0.041], tr: [2.69, -0.049], br: [2.69, 1.331], bl: [1.84, 1.241], lens: 0.06, rot: 6 },
+  left_repeater: { tl: [-1.69, -0.275], tr: [-0.84, -0.191], br: [-0.84, 0.922], bl: [-1.69, 1.005], lens: 0.06, rot: 15 },
+  right_repeater: { tl: [1.84, -0.109], tr: [2.69, -0.199], br: [2.69, 1.181], bl: [1.84, 1.091], lens: 0.06, rot: -15 },
 };
 const KEY = 'tcc.pano3v1';
 let cache: Record<string, Partial<Pins>> | null = null;
@@ -23,7 +23,20 @@ export function setP3Pins(cam: string, v: Partial<Pins> | null) {
   const a = load(); if (v) a[cam] = { ...a[cam], ...v }; else delete a[cam];
   try { localStorage.setItem(KEY, JSON.stringify(a)); } catch { /* */ }
 }
-export const resetP3 = () => { cache = {}; try { localStorage.removeItem(KEY); } catch { /* */ } };
+/** whole pin set (all cameras + '_fe' blend) for presets */
+export const p3All = () => JSON.parse(JSON.stringify(load()));
+export function setP3All(v: Record<string, Partial<Pins>>) { cache = JSON.parse(JSON.stringify(v || {})); try { localStorage.setItem(KEY, JSON.stringify(cache)); } catch { /* */ } }
+export const p3Blend = () => +((load() as any)._fe?.v ?? 0.04);
+export const setP3Blend = (v: number) => { const a = load() as any; a._fe = { v }; try { localStorage.setItem(KEY, JSON.stringify(a)); } catch { /* */ } };
+const PK = 'tcc.p3presets', AK = 'tcc.p3active';
+export const p3Presets = (): Record<string, any> => { try { return JSON.parse(localStorage.getItem(PK) || '{}'); } catch { return {}; } };
+export const p3Active = () => localStorage.getItem(AK) || '';
+export function savePreset(name: string) { const a = p3Presets(); a[name] = p3All(); localStorage.setItem(PK, JSON.stringify(a)); localStorage.setItem(AK, name); }
+export function loadPreset(name: string) { const a = p3Presets()[name]; if (!a) return false; setP3All(a); localStorage.setItem(AK, name); return true; }
+export function deletePreset(name: string) { const a = p3Presets(); delete a[name]; localStorage.setItem(PK, JSON.stringify(a)); if (p3Active() === name) localStorage.removeItem(AK); }
+export function importPresets(j: any) { const a = { ...p3Presets(), ...(j.presets || {}) }; localStorage.setItem(PK, JSON.stringify(a)); if (j.current) setP3All(j.current); if (j.active) localStorage.setItem(AK, j.active); }
+export const exportPresets = () => ({ app: 'teslacutcam', kind: 'stitch-presets', version: 1, active: p3Active(), current: p3All(), presets: p3Presets() });
+export const resetP3 = () => { cache = {}; try { localStorage.removeItem(KEY); localStorage.removeItem(AK); } catch { /* */ } };
 const sides = (n: 3 | 5) => (n === 5 ? P5_CAMS : P3_CAMS).filter(c => c !== 'front');
 
 const FRONT_AR = 1876 / 2896; // HW4 front h/w (others are scaled to it)
@@ -133,7 +146,7 @@ export function renderPano3(src: Record<string, Src | undefined>, W: number, H: 
   const e = p3Extent(c => use.has(c) && !!src[c], n);
   gl.uniform4f(u.ext, e.x0, e.x1, e.y0, e.y1); gl.uniform1fv(u.has, new Float32Array(has));
   const k = (c: string) => p3Pins(c).lens;
-  gl.uniform4f(u.lens, k('left_repeater'), k('left_pillar'), k('right_pillar'), k('right_repeater')); gl.uniform1f(u.fe, 0.04);
+  gl.uniform4f(u.lens, k('left_repeater'), k('left_pillar'), k('right_pillar'), k('right_repeater')); gl.uniform1f(u.fe, Math.max(0.002, p3Blend()));
   gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
   return cv;
 }
