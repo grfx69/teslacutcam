@@ -1,7 +1,8 @@
+import { renderPano3, p3Regions, p3Aspect } from './pano3';
 import { defish, defishOn } from './defish';
 import { camLabel, CAMERAS, type Camera } from './library';
 
-export type Layout = 'theater' | 'single' | 'grid' | 'pip' | 'stitch' | 'pano' | 'panorear';
+export type Layout = 'theater' | 'single' | 'grid' | 'pip' | 'stitch' | 'pano' | 'panorear' | 'pano3';
 /** mirror the rear camera in stitched layouts (rear-view-mirror orientation lines its left edge up with the left repeater) */
 export const rearMirror = () => { try { return localStorage.getItem('tcc.rearMirror') !== '0'; } catch { return true; } };
 type Src = CanvasImageSource & ({ videoWidth: number; videoHeight: number } | { displayWidth: number; displayHeight: number });
@@ -42,7 +43,7 @@ function fit(c: CanvasRenderingContext2D, s: Src | undefined, [x, y, w, h]: Rect
 }
 
 /** Output aspect (H/W) per layout. Theater is taller so every camera gets a usable size. */
-export const layoutAspect = (l: Layout) => l === 'theater' || l === 'stitch' ? 0.9 : l === 'pano' ? 0.3 : l === 'panorear' ? 0.6 : 9 / 16;
+export const layoutAspect = (l: Layout) => l === 'pano3' ? p3Aspect() : l === 'theater' || l === 'stitch' ? 0.9 : l === 'pano' ? 0.3 : l === 'panorear' ? 0.6 : 9 / 16;
 
 /** f = feather widths [left, right, top, bottom] in px: the cell overlaps its neighbour there and fades in */
 export interface Plan { cells: { cam: Camera; r: Rect; cover: boolean; f?: [number, number, number, number]; mirror?: boolean }[]; hud: Rect; }
@@ -89,6 +90,11 @@ export function plan(W: number, H: number, layout: Layout, main: Camera, cams: C
     const order = [has(main) ? main : cams[0], ...cams.filter(c => c !== main)];
     const n = order.length, cols = n <= 4 ? 2 : 3, rows = Math.ceil(n / cols), w = W / cols, h = H / rows;
     order.forEach((c, k) => cells.push({ cam: c, r: [(k % cols) * w, Math.floor(k / cols) * h, w, h], cover: false }));
+    return { cells, hud: [0, 0, W, H] };
+  }
+  if (layout === 'pano3') {
+    for (const g of p3Regions(W, H, c => has(c))) cells.push({ cam: g.cam, r: g.r, cover: false });
+    if (!cells.length) cells.push({ cam: cams[0], r: [0, 0, W, H], cover: false });
     return { cells, hud: [0, 0, W, H] };
   }
   if (layout === 'pano' || layout === 'panorear') {
@@ -151,6 +157,13 @@ export function compose(c: CanvasRenderingContext2D, W: number, H: number, layou
   const cams = [...CAMERAS, ...[...have].filter(k => !CAMERAS.includes(k))].filter(k => have.has(k));
   c.fillStyle = '#000'; c.fillRect(0, 0, W, H);
   const p = plan(W, H, layout, main, cams);
+  if (layout === 'pano3' && cams.some(k => k === 'front' || k.includes('pillar'))) {
+    if (typeof window !== "undefined" && W > 0) (window as any).__lastPlan = { W, H, cells: p.cells.map(c => ({ cam: c.cam, r: c.r })) };
+    const cv = renderPano3({ left_pillar: src.left_pillar, front: src.front, right_pillar: src.right_pillar } as any, Math.round(W), Math.round(H));
+    if (cv) { c.drawImage(cv as CanvasImageSource, 0, 0, W, H); for (const cell of p.cells) tag(c, cell.r, camLabel(cell.cam)); return p.hud; }
+    layout = 'pano'; // no WebGL: fall back to the 2D panorama
+    return compose(c, W, H, layout, main, src, xf, all);
+  }
   if (typeof window !== "undefined" && W > 0) (window as any).__lastPlan = { W, H, cells: p.cells.map(c => ({ cam: c.cam, r: c.r })) };
   const showLabels = p.cells.length > 1;
   const stitched = p.cells.some(x => x.f);

@@ -2,6 +2,7 @@ import './style.css';
 import { buildLibrary, walkHandle, eventCams, camLabel, type Camera, type Entry, type TeslaEvent } from './library';
 import type { Telemetry } from './sei';
 import { setDefish, getDefish } from './defish';
+import { p3Pins, setP3Pins, resetP3 } from './pano3';
 import { compose, plan, layoutAspect, type Layout, stitchPref, setStitchPref, resetStitch, autoAlign, stitchGroup } from './compose';
 import { buildTrail, drawMapPanel, preloadTiles, setTileListener, type Trail } from './map';
 import { defaultRamp, findTriggers, rateAt, TRIGGER_LABEL, type RampOpts, type Trigger } from './ramps';
@@ -299,16 +300,30 @@ $('rate').onchange = () => { if (playing) play(); };
   document.body.append(pn);
   const camSel = $<HTMLSelectElement>('alCam');
   const fill = () => {
-    camSel.innerHTML = cams.map(c => `<option value="${c}">${c.replace('_', ' ')}</option>`).join('');
+    camSel.innerHTML = cams.filter(c => !is3() || c.includes('pillar')).map(c => `<option value="${c}">${c.replace('_', ' ')}</option>`).join('');
     sync();
   };
-  const sync = () => { const p = stitchPref(camSel.value, stitchGroup(layout())) as any; pn.querySelectorAll<HTMLInputElement>('input[data-k]').forEach(i => { i.value = p[i.dataset.k!]; pn.querySelector(`[data-v="${i.dataset.k}"]`)!.textContent = (+p[i.dataset.k!]).toFixed(2); }); };
-  pn.addEventListener('input', e => { const i = e.target as HTMLInputElement; if (!i.dataset.k) return; setStitchPref(camSel.value, { [i.dataset.k]: +i.value }, stitchGroup(layout())); sync(); draw(); });
+  const P3K: [string, string, number, number][] = [['ix', 'Seam X', -0.2, 0.3], ['it', 'Seam top Y', -0.5, 0.6], ['ib', 'Seam bottom Y', 0.4, 1.6], ['ox', 'Outer X', -1.6, -0.3], ['ot', 'Outer top Y', -0.8, 0.8], ['ob', 'Outer bottom Y', 0.4, 2], ['lens', 'Fisheye', -0.3, 0.4]];
+  const p3get = (c: string) => { const p = p3Pins(c), L = c === 'left_pillar'; const [i1, i2, o1, o2] = L ? [p.tr, p.br, p.tl, p.bl] : [p.tl, p.bl, p.tr, p.br];
+    const f = (x: number) => L ? x : 1 - x; return { ix: f(i1[0]), it: i1[1], ib: i2[1], ox: f(o1[0]), ot: o1[1], ob: o2[1], lens: p.lens } as Record<string, number>; };
+  const p3set = (c: string, v: Record<string, number>) => { const L = c === 'left_pillar', f = (x: number) => L ? x : 1 - x;
+    const i1: [number, number] = [f(v.ix), v.it], i2: [number, number] = [f(v.ix), v.ib], o1: [number, number] = [f(v.ox), v.ot], o2: [number, number] = [f(v.ox), v.ob];
+    setP3Pins(c, L ? { tr: i1, br: i2, tl: o1, bl: o2, lens: v.lens } : { tl: i1, bl: i2, tr: o1, br: o2, lens: v.lens }); };
+  const p3html = () => `<div id="p3sl">${P3K.map(([k, t, a, b]) => sl('p3' + k, t, a, b, 0.002)).join('')}</div>`;
+  pn.querySelector('#alAuto')!.insertAdjacentHTML('beforebegin', '');
+  pn.querySelector('select')!.parentElement!.insertAdjacentHTML('afterend', p3html());
+  const is3 = () => layout() === 'pano3';
+  const sync = () => { pn.querySelectorAll<HTMLElement>('label').forEach(l => { const k = l.querySelector('input')?.dataset.k || ''; l.style.display = (k.startsWith('p3') === is3()) ? 'flex' : 'none'; });
+    ($('alAuto') as HTMLElement).hidden = is3();
+    if (is3()) { if (!camSel.value.includes('pillar')) return; const v = p3get(camSel.value); for (const [k] of P3K) { const i = pn.querySelector<HTMLInputElement>(`[data-k="p3${k}"]`)!; i.value = String(v[k]); pn.querySelector(`[data-v="p3${k}"]`)!.textContent = v[k].toFixed(3); } return; }
+    const p = stitchPref(camSel.value, stitchGroup(layout())) as any; pn.querySelectorAll<HTMLInputElement>('input[data-k]').forEach(i => { i.value = p[i.dataset.k!]; pn.querySelector(`[data-v="${i.dataset.k}"]`)!.textContent = (+p[i.dataset.k!]).toFixed(2); }); };
+  pn.addEventListener('input', e => { const i = e.target as HTMLInputElement; if (!i.dataset.k) return;
+    if (i.dataset.k.startsWith('p3')) { const v = p3get(camSel.value); v[i.dataset.k.slice(2)] = +i.value; p3set(camSel.value, v); sync(); draw(); return; } setStitchPref(camSel.value, { [i.dataset.k]: +i.value }, stitchGroup(layout())); sync(); draw(); });
   camSel.addEventListener('change', sync);
   btn.addEventListener('click', () => { pn.hidden = !pn.hidden; if (!pn.hidden) fill(); });
   $('alClose').addEventListener('click', e => { e.preventDefault(); pn.hidden = true; });
-  $('alReset').addEventListener('click', () => { setStitchPref(camSel.value, null, stitchGroup(layout())); sync(); draw(); });
-  $('alResetAll').addEventListener('click', () => { resetStitch(); sync(); draw(); });
+  $('alReset').addEventListener('click', () => { if (is3()) { setP3Pins(camSel.value, null); sync(); draw(); return; } setStitchPref(camSel.value, null, stitchGroup(layout())); sync(); draw(); });
+  $('alResetAll').addEventListener('click', () => { if (is3()) resetP3(); else resetStitch(); sync(); draw(); });
   $('alAuto').addEventListener('click', () => {
     if (!ev || seg < 0) return;
     const src: Record<Camera, HTMLVideoElement> = {};
@@ -318,8 +333,8 @@ $('rate').onchange = () => { if (playing) play(); };
     $('alMsg').textContent = `Aligned ${Object.keys(r).length} seams in ${Math.round(performance.now() - t0)} ms`;
     sync(); draw();
   });
-  const vis2 = () => { const on = ['stitch', 'pano', 'panorear'].includes(layout()); btn.hidden = !on; if (!on) pn.hidden = true; };
-  $('layout').addEventListener('change', () => { vis2(); if (!pn.hidden) sync(); }); vis2();
+  const vis2 = () => { const on = ['stitch', 'pano', 'panorear', 'pano3'].includes(layout()); btn.hidden = !on; if (!on) pn.hidden = true; };
+  $('layout').addEventListener('change', () => { vis2(); if (!pn.hidden) fill(); }); vis2();
 }
 document.addEventListener('keydown', e => {
   const tg = e.target as HTMLElement;
@@ -455,7 +470,7 @@ const XLABELS: [keyof OverlayOpts, string, Mode | 'both'][] = [['map', 'Map', 'b
 let xopts: OverlayOpts | null = null;
 let xHud = true;
 const xLayout = () => $<HTMLSelectElement>('xLayout').value as Layout;
-function xSize(): [number, number] { const W = +$<HTMLSelectElement>('xRes').value.split('x')[0]; return [W, Math.round(W * layoutAspect(xLayout()) / 2) * 2]; }
+function xSize(): [number, number] { let W = +$<HTMLSelectElement>('xRes').value.split('x')[0]; if (xLayout() === 'pano3') W = Math.min(4096, Math.max(W, 3840)); return [W, Math.round(W * layoutAspect(xLayout()) / 2) * 2]; }
 function xRefresh() {
   xHud = $<HTMLInputElement>('xHudOn').checked;
   readFeatureUI();
@@ -813,4 +828,4 @@ document.querySelectorAll<HTMLInputElement>('.dfcb').forEach(cb => {
 });
 
 declare const __BUILD__: string;
-{ const b = document.getElementById("buildv"); if (b) b.textContent = __BUILD__ + " · seams v4"; }
+{ const b = document.getElementById("buildv"); if (b) b.textContent = __BUILD__ + " · seams v5"; }
